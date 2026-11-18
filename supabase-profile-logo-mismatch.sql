@@ -1,0 +1,3 @@
+-- Migration for existing installs: remove the profile join dependency on logo_url;
+-- merchant branding belongs to merchant_ads and does not require profiles.logo_url.
+-- The frontend helper queries only profiles(full_name, store_name) for public ad cards.

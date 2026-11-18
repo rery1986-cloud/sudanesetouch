@@ -5,13 +5,20 @@ window.LAMSA_SUPABASE_CONFIG = Object.freeze({
   anonKey: 'YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY'
 });
 
-// Load this file before lamsa-enhancements.js and include Supabase JS v2 UMD CDN.
-window.createLamsaSupabaseClient = function () {
+window.getLamsaSupabaseConfigError = function () {
   const { url, anonKey } = window.LAMSA_SUPABASE_CONFIG || {};
-  if (!url || !anonKey || url.includes('YOUR_PROJECT_ID') || anonKey.includes('YOUR_')) {
-    throw new Error('أضيفي عنوان مشروع Supabase ومفتاح anon/publishable في supabase-config.js');
+  if (!url || !anonKey || /YOUR_PROJECT_ID|YOUR_/.test(url + anonKey)) {
+    return 'لربط الحسابات الحقيقية، أضيفي رابط مشروع Supabase ومفتاح anon/publishable في ملف supabase-config.js. يمكنك متابعة وضع العرض التجريبي.';
   }
-  if (!window.supabase?.createClient) throw new Error('مكتبة Supabase JS غير محمّلة');
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)) return 'رابط Supabase غير صالح. تحققي من Project URL في إعدادات المشروع.';
+  if (!window.supabase?.createClient) return 'تعذّر تحميل مكتبة Supabase. تحققي من اتصال الإنترنت ثم أعيدي المحاولة.';
+  return '';
+};
+
+window.createLamsaSupabaseClient = function () {
+  const problem = window.getLamsaSupabaseConfigError();
+  if (problem) throw new Error(problem);
+  const { url, anonKey } = window.LAMSA_SUPABASE_CONFIG;
   return window.supabase.createClient(url, anonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
   });
