@@ -377,7 +377,9 @@
     const STORAGE_KEY = "lamsa_platform_db_v1";
     const SUPABASE_URL = "https://gjoybqpjmiobsoskzlgf.supabase.co";
     const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_mtkJj_XSu4GhwQWUII1YYw_w51HcU_R";
+    const ADMIN_EMAIL = "rery1986@gmail.com";
     const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    let verifiedAdminUserId = null;
 
     function createInitialDB() {
       return {
@@ -685,7 +687,7 @@
 
     async function saveDB() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
-      if (!supabaseClient) return;
+      if (!supabaseClient || !verifiedAdminUserId) return;
       try {
         const { error } = await supabaseClient
           .from("app_state")
@@ -697,7 +699,7 @@
     }
 
     async function loadSupabaseDB() {
-      if (!supabaseClient) return;
+      if (!supabaseClient || !verifiedAdminUserId) return;
       try {
         const { data, error } = await supabaseClient
           .from("app_state")
@@ -718,7 +720,60 @@
       }
     }
 
-    loadSupabaseDB();
+    async function activateVerifiedAdmin(authUser) {
+      if (!authUser || authUser.email?.toLowerCase() !== ADMIN_EMAIL || !authUser.email_confirmed_at) return false;
+      const { data: adminRecord, error } = await supabaseClient
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", authUser.id)
+        .maybeSingle();
+      if (error) {
+        console.warn("Admin verification failed:", error.message);
+        showToast("تعذر التحقق من صلاحيات المدير. يرجى المحاولة لاحقاً.", "error");
+        return false;
+      }
+      if (!adminRecord) return false;
+
+      verifiedAdminUserId = authUser.id;
+      await loadSupabaseDB();
+      let adminUser = db.users.find(user => user.email?.toLowerCase() === ADMIN_EMAIL);
+      if (!adminUser) {
+        const nextId = db.users.reduce((max, user) => Math.max(max, Number(user.id) || 0), 0) + 1;
+        adminUser = { id: nextId, full_name: authUser.user_metadata?.full_name || "مدير النظام", email: ADMIN_EMAIL, password: null, role: "admin", city: "الرياض", is_active: true, is_demo: false };
+        db.users.push(adminUser);
+      }
+      Object.assign(adminUser, { role: "admin", password: null, is_active: true, is_demo: false, auth_user_id: authUser.id });
+      db.currentUserId = adminUser.id;
+      await saveDB();
+      renderHeader();
+      renderMain();
+      showToast(`مرحباً بك يا ${adminUser.full_name}، تم التحقق من صلاحية مدير النظام.`);
+      return true;
+    }
+
+    async function initializeAdminAuth() {
+      if (!supabaseClient) return;
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      if (error) console.warn("Supabase session check failed:", error.message);
+      if (session?.user) await activateVerifiedAdmin(session.user);
+      if (!verifiedAdminUserId && currentUser()?.role === "admin") {
+        db.currentUserId = null;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+        renderHeader();
+        renderMain();
+      }
+      supabaseClient.auth.onAuthStateChange((event, nextSession) => {
+        if (event === "SIGNED_IN" && nextSession?.user) {
+          setTimeout(() => activateVerifiedAdmin(nextSession.user), 0);
+        } else if (event === "SIGNED_OUT" && verifiedAdminUserId) {
+          verifiedAdminUserId = null;
+          if (currentUser()?.role === "admin") db.currentUserId = null;
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+          renderHeader();
+          renderMain();
+        }
+      });
+    }
 
     function esc(str) {
       return String(str ?? "")
@@ -872,7 +927,11 @@
         `;
         document.getElementById("notifBtn").onclick = showNotificationsModal;
         document.getElementById("goDashBtn").onclick = () => navigate("dashboard");
-        document.getElementById("logoutBtn").onclick = () => {
+        document.getElementById("logoutBtn").onclick = async () => {
+          if (verifiedAdminUserId && supabaseClient) {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) console.warn("Supabase sign-out failed:", error.message);
+          }
           db.currentUserId = null;
           saveDB();
           navigate("home");
@@ -2508,7 +2567,6 @@
           <div class="grid grid-cols-3 gap-2 text-xs">
             <button data-demo-email="amna@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F3EAE0] font-bold hover:bg-[#EFE0C3]">عميلة (آمنة)</button>
             <button data-demo-email="tasneem@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F3EAE0] font-bold hover:bg-[#EFE0C3]">خبيرة (تسنيم)</button>
-            <button data-demo-email="admin@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#EFE0C3] font-bold hover:bg-[#E2C792]">مديرة النظام</button>
             <button data-demo-email="mod.jeddah@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F5ECE0] font-bold hover:bg-[#EFE0C3]">أدمن (مشرفة)</button>
             <button data-demo-email="tajera@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#EFE0C3]/80 font-bold hover:bg-[#E2C792]">تاجرة / بازار</button>
           </div>
@@ -2525,6 +2583,17 @@
         const regBtn = document.getElementById("loginToRegisterBtn");
         regBtn.classList.toggle("hidden", selectedRole === "admin");
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
+        const passwordInput = document.querySelector('#loginForm [name="password"]');
+        const submitButton = document.querySelector('#loginForm button[type="submit"]');
+        const emailInput = document.querySelector('#loginForm [name="email"]');
+        const updateAdminLoginMode = () => {
+          const verifiedAdminLogin = selectedRole === "admin" && emailInput.value.trim().toLowerCase() === ADMIN_EMAIL;
+          passwordInput.classList.toggle("hidden", verifiedAdminLogin);
+          passwordInput.required = !verifiedAdminLogin;
+          submitButton.textContent = verifiedAdminLogin ? "إرسال رابط التحقق إلى بريدي" : "دخول";
+        };
+        emailInput.oninput = updateAdminLoginMode;
+        updateAdminLoginMode();
         document.querySelectorAll(".login-role-tab").forEach(btn => {
           btn.onclick = () => { selectedRole = btn.dataset.loginRole; paintLoginRoles(); };
         });
@@ -2533,14 +2602,30 @@
 
       document.getElementById("loginToRegisterBtn").onclick = () => { closeModal(); showRegisterModal(selectedRole); };
 
-      document.getElementById("loginForm").onsubmit = e => {
+      document.getElementById("loginForm").onsubmit = async e => {
         e.preventDefault();
         const fd = new FormData(e.target);
         const email = fd.get("email").trim().toLowerCase();
         const pwd = fd.get("password");
+        if (selectedRole === "admin" && email === ADMIN_EMAIL) {
+          if (!supabaseClient) return showToast("خدمة التحقق غير متاحة حالياً", "error");
+          const { error } = await supabaseClient.auth.signInWithOtp({
+            email: ADMIN_EMAIL,
+            options: { emailRedirectTo: window.location.href.split("#")[0] }
+          });
+          if (error) {
+            console.error("Admin sign-in request failed:", error.message);
+            return showToast("تعذر إرسال رابط التحقق. تحققي من إعدادات البريد وحاولي مرة أخرى.", "error");
+          }
+          showToast("أرسلنا رابط تحقق إلى بريدك. افتحيه لإكمال تسجيل الدخول كمديرة النظام.");
+          return;
+        }
         const u = db.users.find(x => x.email === email && x.password === pwd);
         if (!u) return showToast("بيانات الدخول غير صحيحة", "error");
         if (!u.is_active) return showToast("هذا الحساب معطل من الإدارة", "error");
+        if (u.role === "admin" && (!verifiedAdminUserId || u.auth_user_id !== verifiedAdminUserId)) {
+          return showToast("دخول مديرة النظام يتطلب التحقق من البريد المرتبط بالحساب", "error");
+        }
         const roleOk = selectedRole === "admin" ? (u.role === "admin" || u.role === "moderator") : u.role === selectedRole;
         if (!roleOk) {
           return showToast(`هذا الحساب مسجل كـ «${ROLE_NAMES[u.role] || u.role}» — اختاري نوع الحساب المناسب من الأعلى`, "error");
@@ -2554,6 +2639,7 @@
       document.querySelectorAll(".demo-login-btn").forEach(btn => {
         btn.onclick = () => {
           const u = db.users.find(x => x.email === btn.dataset.demoEmail);
+          if (!u || u.role === "admin") return showToast("حسابات الإدارة تتطلب التحقق من البريد", "error");
           db.currentUserId = u.id;
           saveDB();
           closeModal();
@@ -3784,6 +3870,7 @@
     // Boot
     renderHeader();
     renderMain();
+    initializeAdminAuth();
   </script>
 </body>
 </html>
