@@ -380,6 +380,7 @@
     const ADMIN_EMAIL = "rery1986@gmail.com";
     const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
     let verifiedAdminUserId = null;
+    let adminPasswordRecoveryPending = false;
 
     function createInitialDB() {
       return {
@@ -720,13 +721,43 @@
       }
     }
 
+    function showAdminPasswordRecoveryModal() {
+      openModal(`
+        <h2 class="text-xl font-extrabold text-[#4A332A] mb-3">تعيين كلمة مرور جديدة</h2>
+        <form id="adminPasswordRecoveryForm" class="space-y-3">
+          <label class="block text-xs font-bold">كلمة المرور الجديدة</label>
+          <input name="password" type="password" autocomplete="new-password" minlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
+          <label class="block text-xs font-bold">تأكيد كلمة المرور الجديدة</label>
+          <input name="confirm_password" type="password" autocomplete="new-password" minlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
+          <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">حفظ كلمة المرور</button>
+        </form>
+      `);
+      document.getElementById("adminPasswordRecoveryForm").onsubmit = async event => {
+        event.preventDefault();
+        const formData = new FormData(event.target);
+        const password = formData.get("password");
+        if (password !== formData.get("confirm_password")) {
+          return showToast("كلمة المرور وتأكيدها غير متطابقين", "error");
+        }
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) {
+          console.error("Administrator password recovery failed:", error.message);
+          return showToast("تعذر تحديث كلمة المرور. استخدمي رابط الاستعادة الأحدث ثم حاولي مجدداً.", "error");
+        }
+        const { error: signOutError } = await supabaseClient.auth.signOut();
+        adminPasswordRecoveryPending = false;
+        closeModal();
+        if (signOutError) {
+          console.error("Sign-out after password recovery failed:", signOutError.message);
+          return showToast("تم تحديث كلمة المرور، لكن تعذر إنهاء الجلسة. أغلقي الصفحة ثم سجّلي الدخول مجدداً.", "error");
+        }
+        showToast("تم تحديث كلمة المرور. سجّلي الدخول بكلمتك الجديدة.");
+        showLoginModal("admin");
+      };
+    }
+
     async function activateVerifiedAdmin(authUser) {
       if (!authUser || authUser.email?.toLowerCase() !== ADMIN_EMAIL || !authUser.email_confirmed_at) return false;
-      const { data: assurance, error: assuranceError } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (assuranceError || assurance?.currentLevel !== "aal2") {
-        if (assuranceError) console.warn("Admin MFA assurance check failed:", assuranceError.message);
-        return false;
-      }
       const { data: adminRecord, error } = await supabaseClient
         .from("platform_admins")
         .select("user_id")
@@ -757,123 +788,17 @@
       return true;
     }
 
-    function showAdminTotpCodeModal(factorId, challengeId, setupDetails = null) {
-      openModal(`
-        <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">التحقق بخطوتين</h2>
-        ${setupDetails ? `
-          <p class="text-sm text-[#735447] mb-3">امسحي رمز QR بتطبيق مصادقة مثل Google Authenticator أو Microsoft Authenticator، ثم أدخلي الرمز الظاهر في التطبيق.</p>
-          <img src="${esc(setupDetails.qrCode)}" alt="رمز إعداد المصادقة" class="mx-auto mb-3 max-w-full rounded-xl bg-white p-2" />
-          <p class="text-xs text-[#735447] mb-1">إذا لم تستطيعي مسح الرمز، أدخلي هذا المفتاح يدوياً في التطبيق:</p>
-          <code dir="ltr" class="block select-all break-all rounded-xl bg-white p-3 text-center text-sm font-bold tracking-wider mb-4">${esc(setupDetails.secret)}</code>
-        ` : '<p class="text-sm text-[#735447] mb-4">أدخلي الرمز الحالي من تطبيق المصادقة.</p>'}
-        <form id="adminTotpCodeForm" class="space-y-3">
-          <label class="block text-xs font-bold">رمز التحقق</label>
-          <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-center text-lg tracking-[0.4em]" placeholder="------" />
-          <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">تأكيد الرمز والدخول</button>
-        </form>
-      `);
-      document.getElementById("adminTotpCodeForm").onsubmit = async event => {
-        event.preventDefault();
-        const code = new FormData(event.target).get("code").trim();
-        const { error } = await supabaseClient.auth.mfa.verify({ factorId, challengeId, code });
-        if (error) {
-          console.error("Admin authenticator verification failed:", error.message);
-          return showToast("رمز التحقق غير صحيح أو انتهت صلاحيته. حاولي مجدداً.", "error");
-        }
-        const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-        if (userError || !user) {
-          console.error("Admin user lookup after MFA failed:", userError?.message || "No authenticated user");
-          return showToast("تعذر إكمال تسجيل الدخول. أعيدي المحاولة.", "error");
-        }
-        if (!await activateVerifiedAdmin(user)) {
-          await supabaseClient.auth.signOut();
-          return showToast("تعذر تأكيد صلاحية مدير النظام. تحققي من إعدادات الحساب ثم حاولي مجدداً.", "error");
-        }
-      };
-    }
-
-    async function challengeAdminTotpFactor(factor) {
-      const { data, error } = await supabaseClient.auth.mfa.challenge({ factorId: factor.id });
-      if (error) {
-        console.error("Admin authenticator challenge failed:", error.message);
-        return showToast("تعذر بدء التحقق بتطبيق المصادقة. حاولي مجدداً.", "error");
-      }
-      showAdminTotpCodeModal(factor.id, data.id);
-    }
-
-    async function startAdminMfa(authUser) {
-      if (!authUser || authUser.email?.toLowerCase() !== ADMIN_EMAIL || !authUser.email_confirmed_at) {
-        await supabaseClient.auth.signOut();
-        return showToast("هذا الحساب غير مخوّل كمدير للنظام.", "error");
-      }
-      const { data: assurance, error: assuranceError } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (assuranceError) {
-        console.error("Admin MFA status check failed:", assuranceError.message);
-        return showToast("تعذر التحقق من إعدادات الأمان. حاولي مجدداً.", "error");
-      }
-      if (assurance?.currentLevel === "aal2") {
-        if (!await activateVerifiedAdmin(authUser)) {
-          await supabaseClient.auth.signOut();
-          showToast("تعذر تأكيد صلاحية مدير النظام.", "error");
-        }
-        return;
-      }
-
-      const { data: factors, error: factorsError } = await supabaseClient.auth.mfa.listFactors();
-      if (factorsError) {
-        console.error("Admin MFA factors lookup failed:", factorsError.message);
-        return showToast("تعذر قراءة عوامل التحقق لحسابك.", "error");
-      }
-      const totpFactor = factors.totp.find(factor => factor.status === "verified");
-      if (totpFactor) return challengeAdminTotpFactor(totpFactor);
-
-      openModal(`
-        <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">إعداد التحقق بتطبيق المصادقة</h2>
-        <p class="text-sm text-[#735447] mb-4">لأمان حساب الإدارة، يلزم إعداد تطبيق مصادقة على هاتفك. سنعرض رمز QR ومفتاحاً سرياً لإضافته إلى التطبيق، ثم نطلب رمزاً منه لتأكيد الإعداد.</p>
-        <button type="button" id="adminTotpEnrollBtn" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">إعداد تطبيق المصادقة</button>
-      `);
-      document.getElementById("adminTotpEnrollBtn").onclick = async () => {
-        const pendingFactors = factors.totp.filter(factor => factor.status !== "verified");
-        for (const factor of pendingFactors) {
-          const { error } = await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
-          if (error) {
-            console.error("Pending admin authenticator cleanup failed:", error.message);
-            return showToast("تعذر إعادة تهيئة تطبيق المصادقة. حاولي مجدداً.", "error");
-          }
-        }
-        const { data: enrolledFactor, error } = await supabaseClient.auth.mfa.enroll({
-          factorType: "totp",
-          friendlyName: "Lamsa system administrator"
-        });
-        if (error || !enrolledFactor?.totp?.qr_code || !enrolledFactor.totp.secret) {
-          console.error("Admin authenticator enrollment failed:", error?.message || "Missing TOTP setup details");
-          return showToast("تعذر إعداد تطبيق المصادقة. تحققي من إعداد MFA في Supabase.", "error");
-        }
-        const { data: challenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({ factorId: enrolledFactor.id });
-        if (challengeError) {
-          console.error("Initial admin authenticator challenge failed:", challengeError.message);
-          return showToast("تم إنشاء إعداد المصادقة لكن تعذر بدء التحقق. حاولي مجدداً.", "error");
-        }
-        showAdminTotpCodeModal(enrolledFactor.id, challenge.id, {
-          qrCode: enrolledFactor.totp.qr_code,
-          secret: enrolledFactor.totp.secret
-        });
-      };
-    }
-
     async function initializeAdminAuth() {
       if (!supabaseClient) return;
-      const { data: { session }, error } = await supabaseClient.auth.getSession();
-      if (error) console.warn("Supabase session check failed:", error.message);
-      if (session?.user) await activateVerifiedAdmin(session.user);
-      if (!verifiedAdminUserId && currentUser()?.role === "admin") {
-        db.currentUserId = null;
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
-        renderHeader();
-        renderMain();
-      }
       supabaseClient.auth.onAuthStateChange((event, nextSession) => {
-        if (event === "SIGNED_IN" && nextSession?.user) {
+        if (event === "PASSWORD_RECOVERY" && nextSession?.user?.email?.toLowerCase() === ADMIN_EMAIL) {
+          adminPasswordRecoveryPending = true;
+          setTimeout(showAdminPasswordRecoveryModal, 0);
+        } else if (event === "PASSWORD_RECOVERY") {
+          adminPasswordRecoveryPending = true;
+          setTimeout(() => supabaseClient.auth.signOut(), 0);
+          showToast("رابط الاستعادة غير صالح لهذا الحساب.", "error");
+        } else if (event === "SIGNED_IN" && nextSession?.user) {
           setTimeout(() => activateVerifiedAdmin(nextSession.user), 0);
         } else if (event === "SIGNED_OUT" && verifiedAdminUserId) {
           verifiedAdminUserId = null;
@@ -883,6 +808,15 @@
           renderMain();
         }
       });
+      const { data: { session }, error } = await supabaseClient.auth.getSession();
+      if (error) console.warn("Supabase session check failed:", error.message);
+      if (session?.user && !adminPasswordRecoveryPending) await activateVerifiedAdmin(session.user);
+      if (!verifiedAdminUserId && currentUser()?.role === "admin") {
+        db.currentUserId = null;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+        renderHeader();
+        renderMain();
+      }
     }
 
     function esc(str) {
@@ -2192,7 +2126,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 class="text-xl font-extrabold text-[#4A332A]">⚙️ تعديل بياناتي وتأكيد الهوية</h2>
-                <p class="text-xs text-[#735447]">${isSuperAdmin ? "عدّلي بياناتكِ وبريدكِ وكلمة مرور مديرة النظام؛ يلزم إدخال كلمة المرور الحالية لتأكيد هويتكِ قبل الحفظ." : "عدّلي بياناتكِ الشخصية وكلمة المرور؛ يلزم إدخال كلمة المرور الحالية لتأكيد هويتكِ."}</p>
+                <p class="text-xs text-[#735447]">${isSuperAdmin ? "عدّلي بياناتكِ وكلمة مرور مديرة النظام؛ يلزم تأكيد كلمة المرور الحالية قبل الحفظ. يمكنكِ استعادتها من شاشة الدخول إذا تعذّر تذكرها." : "عدّلي بياناتكِ الشخصية وكلمة المرور؛ يلزم إدخال كلمة المرور الحالية لتأكيد هويتكِ."}</p>
               </div>
               <span class="px-3 py-1 rounded-full bg-[#F3EAE0] text-[#4A332A] text-xs font-bold">📧 ${esc(me.email)}</span>
             </div>
@@ -2668,8 +2602,9 @@
         <p id="loginRoleHint" class="text-[11px] text-[#735447] mb-3"></p>
         <form id="loginForm" class="space-y-3">
           <input name="email" type="email" required placeholder="البريد الإلكتروني" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
-          <input name="password" type="password" required placeholder="كلمة المرور" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
+          <input name="password" type="password" autocomplete="current-password" required placeholder="كلمة المرور" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
           <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">دخول</button>
+          <button type="button" id="adminForgotPasswordBtn" class="hidden w-full text-xs font-bold text-[#A96B65] hover:underline">نسيت كلمة المرور؟ إرسال رابط إعادة التعيين</button>
         </form>
         <button type="button" id="loginToRegisterBtn" class="mt-3 w-full text-xs font-bold text-[#A96B65] hover:underline"></button>
         <div class="mt-5 pt-4 border-t border-[#E8DACA]">
@@ -2693,6 +2628,7 @@
         const regBtn = document.getElementById("loginToRegisterBtn");
         regBtn.classList.toggle("hidden", selectedRole === "admin");
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
+        document.getElementById("adminForgotPasswordBtn").classList.toggle("hidden", selectedRole !== "admin");
         document.querySelectorAll(".login-role-tab").forEach(btn => {
           btn.onclick = () => { selectedRole = btn.dataset.loginRole; paintLoginRoles(); };
         });
@@ -2700,6 +2636,17 @@
       paintLoginRoles();
 
       document.getElementById("loginToRegisterBtn").onclick = () => { closeModal(); showRegisterModal(selectedRole); };
+      document.getElementById("adminForgotPasswordBtn").onclick = async () => {
+        if (!supabaseClient) return showToast("خدمة إعادة تعيين كلمة المرور غير متاحة حالياً", "error");
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(ADMIN_EMAIL, {
+          redirectTo: window.location.href.split("#")[0]
+        });
+        if (error) {
+          console.error("Administrator password reset request failed:", error.message);
+          return showToast("تعذر إرسال رابط إعادة التعيين. حاولي لاحقاً.", "error");
+        }
+        showToast("إذا كان الحساب مفعلاً، فسيصل رابط إعادة تعيين كلمة المرور إلى بريده.");
+      };
 
       document.getElementById("loginForm").onsubmit = async e => {
         e.preventDefault();
@@ -2713,7 +2660,10 @@
             console.error("Admin password sign-in failed:", error.message);
             return showToast("تعذر تسجيل الدخول. تحققي من كلمة المرور ومن تأكيد البريد الإلكتروني.", "error");
           }
-          await startAdminMfa(data.user);
+          if (!await activateVerifiedAdmin(data.user)) {
+            await supabaseClient.auth.signOut();
+            return showToast("تعذر تأكيد صلاحية مدير النظام. تحققي من البريد المرتبط بالحساب.", "error");
+          }
           return;
         }
         const u = db.users.find(x => x.email === email && x.password === pwd);
@@ -2773,6 +2723,7 @@
             <input name="store_name" placeholder="اسم المتجر أو البازار (مثال: متجر عبق للبخور والثياب)" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
           </div>
           <input name="password" type="password" minlength="6" required placeholder="كلمة المرور (6 أحرف فأكثر)" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
+          <input name="confirm_password" type="password" minlength="6" required placeholder="تأكيد كلمة المرور" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
           <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">إنشاء الحساب</button>
         </form>
       `);
@@ -2794,12 +2745,16 @@
         e.preventDefault();
         const fd = new FormData(e.target);
         const email = fd.get("email").trim().toLowerCase();
+        const password = fd.get("password");
+        if (password !== fd.get("confirm_password")) {
+          return showToast("كلمة المرور وتأكيدها غير متطابقين", "error");
+        }
         if (db.users.some(u => u.email === email)) return showToast("البريد مسجل مسبقاً", "error");
         const newId = Math.max(...db.users.map(u => u.id)) + 1;
         const role = fd.get("role");
         const newUser = {
           id: newId, full_name: fd.get("full_name").trim(), email,
-          phone_private: fd.get("phone").trim(), password: fd.get("password"),
+          phone_private: fd.get("phone").trim(), password,
           role, country: fd.get("country"), city: fd.get("city"), store_name: (fd.get("store_name") || "").trim(),
           is_active: true, is_demo: false
         };
@@ -3727,16 +3682,25 @@
       }
       const myProfForm = document.getElementById("adminMyProfileForm");
       if (myProfForm) {
-        myProfForm.onsubmit = (e) => {
+        myProfForm.onsubmit = async e => {
           e.preventDefault();
           const me = currentUser();
           if (!me || (me.role !== "admin" && me.role !== "moderator")) return;
+          const isSuperAdmin = me.role === "admin";
           const curPwd = document.getElementById("myProfCurrentPwd").value;
-          if (curPwd !== me.password) {
-            showToast("كلمة المرور الحالية غير صحيحة — لم يتم تأكيد هويتكِ", "error");
-            return;
+          if (isSuperAdmin) {
+            const { error } = await supabaseClient.auth.signInWithPassword({ email: ADMIN_EMAIL, password: curPwd });
+            if (error) {
+              console.error("Administrator password confirmation failed:", error.message);
+              return showToast("كلمة المرور الحالية غير صحيحة — لم يتم تأكيد هويتكِ", "error");
+            }
+          } else if (curPwd !== me.password) {
+            return showToast("كلمة المرور الحالية غير صحيحة — لم يتم تأكيد هويتكِ", "error");
           }
           const newEmail = document.getElementById("myProfEmail").value.trim().toLowerCase();
+          if (isSuperAdmin && newEmail !== ADMIN_EMAIL) {
+            return showToast("لا يمكن تغيير بريد مديرة النظام من هذه الصفحة", "error");
+          }
           if (db.users.some(u => u.id !== me.id && u.email.toLowerCase() === newEmail)) {
             showToast("هذا البريد الإلكتروني مستخدم لحساب آخر", "error");
             return;
@@ -3752,7 +3716,16 @@
               showToast("كلمة المرور الجديدة وتأكيدها غير متطابقين", "error");
               return;
             }
-            me.password = newPwd;
+            if (isSuperAdmin) {
+              const { error } = await supabaseClient.auth.updateUser({ password: newPwd });
+              if (error) {
+                console.error("Administrator password update failed:", error.message);
+                return showToast("تعذر تحديث كلمة المرور. حاولي مجدداً.", "error");
+              }
+              me.password = null;
+            } else {
+              me.password = newPwd;
+            }
           }
           me.full_name = document.getElementById("myProfName").value.trim();
           me.email = newEmail;
