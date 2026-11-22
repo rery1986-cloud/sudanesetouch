@@ -377,7 +377,7 @@
     const STORAGE_KEY = "lamsa_platform_db_v1";
     const SUPABASE_URL = "https://gjoybqpjmiobsoskzlgf.supabase.co";
     const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_mtkJj_XSu4GhwQWUII1YYw_w51HcU_R";
-    const supabase = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
     function createInitialDB() {
       return {
@@ -685,9 +685,9 @@
 
     async function saveDB() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
-      if (!supabase) return;
+      if (!supabaseClient) return;
       try {
-        const { error } = await supabase
+        const { error } = await supabaseClient
           .from("app_state")
           .upsert({ id: "main", data: db, updated_at: new Date().toISOString() }, { onConflict: "id" });
         if (error) console.warn("Supabase save error:", error.message);
@@ -697,9 +697,9 @@
     }
 
     async function loadSupabaseDB() {
-      if (!supabase) return;
+      if (!supabaseClient) return;
       try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
           .from("app_state")
           .select("data")
           .eq("id", "main")
