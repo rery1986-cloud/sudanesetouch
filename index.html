@@ -757,22 +757,27 @@
       return true;
     }
 
-    function showAdminPhoneCodeModal(factorId, challengeId, phone) {
+    function showAdminTotpCodeModal(factorId, challengeId, setupDetails = null) {
       openModal(`
         <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">التحقق بخطوتين</h2>
-        <p class="text-sm text-[#735447] mb-4">أدخلي الرمز المرسل برسالة SMS إلى ${esc(phone)}.</p>
-        <form id="adminPhoneCodeForm" class="space-y-3">
+        ${setupDetails ? `
+          <p class="text-sm text-[#735447] mb-3">امسحي رمز QR بتطبيق مصادقة مثل Google Authenticator أو Microsoft Authenticator، ثم أدخلي الرمز الظاهر في التطبيق.</p>
+          <img src="${esc(setupDetails.qrCode)}" alt="رمز إعداد المصادقة" class="mx-auto mb-3 max-w-full rounded-xl bg-white p-2" />
+          <p class="text-xs text-[#735447] mb-1">إذا لم تستطيعي مسح الرمز، أدخلي هذا المفتاح يدوياً في التطبيق:</p>
+          <code dir="ltr" class="block select-all break-all rounded-xl bg-white p-3 text-center text-sm font-bold tracking-wider mb-4">${esc(setupDetails.secret)}</code>
+        ` : '<p class="text-sm text-[#735447] mb-4">أدخلي الرمز الحالي من تطبيق المصادقة.</p>'}
+        <form id="adminTotpCodeForm" class="space-y-3">
           <label class="block text-xs font-bold">رمز التحقق</label>
           <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-center text-lg tracking-[0.4em]" placeholder="------" />
           <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">تأكيد الرمز والدخول</button>
         </form>
       `);
-      document.getElementById("adminPhoneCodeForm").onsubmit = async event => {
+      document.getElementById("adminTotpCodeForm").onsubmit = async event => {
         event.preventDefault();
         const code = new FormData(event.target).get("code").trim();
         const { error } = await supabaseClient.auth.mfa.verify({ factorId, challengeId, code });
         if (error) {
-          console.error("Admin SMS verification failed:", error.message);
+          console.error("Admin authenticator verification failed:", error.message);
           return showToast("رمز التحقق غير صحيح أو انتهت صلاحيته. حاولي مجدداً.", "error");
         }
         const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
@@ -787,13 +792,13 @@
       };
     }
 
-    async function challengeAdminPhoneFactor(factor) {
+    async function challengeAdminTotpFactor(factor) {
       const { data, error } = await supabaseClient.auth.mfa.challenge({ factorId: factor.id });
       if (error) {
-        console.error("Admin SMS challenge failed:", error.message);
-        return showToast("تعذر إرسال رمز SMS. تحققي من إعداد مزوّد الرسائل في Supabase.", "error");
+        console.error("Admin authenticator challenge failed:", error.message);
+        return showToast("تعذر بدء التحقق بتطبيق المصادقة. حاولي مجدداً.", "error");
       }
-      showAdminPhoneCodeModal(factor.id, data.id, factor.phone);
+      showAdminTotpCodeModal(factor.id, data.id);
     }
 
     async function startAdminMfa(authUser) {
@@ -819,44 +824,40 @@
         console.error("Admin MFA factors lookup failed:", factorsError.message);
         return showToast("تعذر قراءة عوامل التحقق لحسابك.", "error");
       }
-      const phoneFactor = factors.phone.find(factor => factor.status === "verified");
-      if (phoneFactor) return challengeAdminPhoneFactor(phoneFactor);
+      const totpFactor = factors.totp.find(factor => factor.status === "verified");
+      if (totpFactor) return challengeAdminTotpFactor(totpFactor);
 
       openModal(`
-        <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">تفعيل التحقق بالجوال</h2>
-        <p class="text-sm text-[#735447] mb-4">هذه أول مرة لتسجيل الدخول الآمن. أدخلي رقمك بصيغة دولية، وسنرسل رمزاً لتوثيقه. سيُستخدم الرقم كعامل تحقق في مرات الدخول التالية.</p>
-        <form id="adminPhoneEnrollForm" class="space-y-3">
-          <label class="block text-xs font-bold">رقم الجوال بصيغة دولية</label>
-          <input name="phone" type="tel" autocomplete="tel" pattern="\\+[1-9][0-9]{7,14}" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm text-left" dir="ltr" placeholder="+9665XXXXXXXX" />
-          <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">إرسال رمز SMS</button>
-        </form>
+        <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">إعداد التحقق بتطبيق المصادقة</h2>
+        <p class="text-sm text-[#735447] mb-4">لأمان حساب الإدارة، يلزم إعداد تطبيق مصادقة على هاتفك. سنعرض رمز QR ومفتاحاً سرياً لإضافته إلى التطبيق، ثم نطلب رمزاً منه لتأكيد الإعداد.</p>
+        <button type="button" id="adminTotpEnrollBtn" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">إعداد تطبيق المصادقة</button>
       `);
-      document.getElementById("adminPhoneEnrollForm").onsubmit = async event => {
-        event.preventDefault();
-        const phone = new FormData(event.target).get("phone").trim();
-        const pendingFactors = factors.phone.filter(factor => factor.status !== "verified");
+      document.getElementById("adminTotpEnrollBtn").onclick = async () => {
+        const pendingFactors = factors.totp.filter(factor => factor.status !== "verified");
         for (const factor of pendingFactors) {
           const { error } = await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
           if (error) {
-            console.error("Pending admin phone factor cleanup failed:", error.message);
-            return showToast("تعذر إعادة تهيئة تحقق الجوال. حاولي مجدداً.", "error");
+            console.error("Pending admin authenticator cleanup failed:", error.message);
+            return showToast("تعذر إعادة تهيئة تطبيق المصادقة. حاولي مجدداً.", "error");
           }
         }
         const { data: enrolledFactor, error } = await supabaseClient.auth.mfa.enroll({
-          factorType: "phone",
-          phone,
+          factorType: "totp",
           friendlyName: "Lamsa system administrator"
         });
-        if (error) {
-          console.error("Admin phone factor enrollment failed:", error.message);
-          return showToast("تعذر إرسال رمز SMS. تحققي من رقم الجوال ومزوّد الرسائل في Supabase.", "error");
+        if (error || !enrolledFactor?.totp?.qr_code || !enrolledFactor.totp.secret) {
+          console.error("Admin authenticator enrollment failed:", error?.message || "Missing TOTP setup details");
+          return showToast("تعذر إعداد تطبيق المصادقة. تحققي من إعداد MFA في Supabase.", "error");
         }
         const { data: challenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({ factorId: enrolledFactor.id });
         if (challengeError) {
-          console.error("Initial admin SMS challenge failed:", challengeError.message);
-          return showToast("تم إعداد عامل الجوال لكن تعذر إرسال الرمز. حاولي مجدداً.", "error");
+          console.error("Initial admin authenticator challenge failed:", challengeError.message);
+          return showToast("تم إنشاء إعداد المصادقة لكن تعذر بدء التحقق. حاولي مجدداً.", "error");
         }
-        showAdminPhoneCodeModal(enrolledFactor.id, challenge.id, enrolledFactor.phone);
+        showAdminTotpCodeModal(enrolledFactor.id, challenge.id, {
+          qrCode: enrolledFactor.totp.qr_code,
+          secret: enrolledFactor.totp.secret
+        });
       };
     }
 
