@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>لَمْسَة | LAMSA — جمالك يستحق الأفضل</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -374,6 +375,9 @@
     };
 
     const STORAGE_KEY = "lamsa_platform_db_v1";
+    const SUPABASE_URL = "https://gjoybqpjmiobsoskzlgf.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_mtkJj_XSu4GhwQWUII1YYw_w51HcU_R";
+    const supabase = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
     function createInitialDB() {
       return {
@@ -679,9 +683,42 @@
       chatWithUserId: null
     };
 
-    function saveDB() {
+    async function saveDB() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+      if (!supabase) return;
+      try {
+        const { error } = await supabase
+          .from("app_state")
+          .upsert({ id: "main", data: db, updated_at: new Date().toISOString() }, { onConflict: "id" });
+        if (error) console.warn("Supabase save error:", error.message);
+      } catch (e) {
+        console.warn("Supabase save unavailable:", e);
+      }
     }
+
+    async function loadSupabaseDB() {
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase
+          .from("app_state")
+          .select("data")
+          .eq("id", "main")
+          .maybeSingle();
+        if (error) {
+          console.warn("Supabase load error:", error.message);
+          return;
+        }
+        if (data?.data) {
+          db = data.data;
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+          if (typeof render === "function") render();
+        }
+      } catch (e) {
+        console.warn("Supabase load unavailable:", e);
+      }
+    }
+
+    loadSupabaseDB();
 
     function esc(str) {
       return String(str ?? "")
