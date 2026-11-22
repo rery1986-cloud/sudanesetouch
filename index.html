@@ -722,6 +722,11 @@
 
     async function activateVerifiedAdmin(authUser) {
       if (!authUser || authUser.email?.toLowerCase() !== ADMIN_EMAIL || !authUser.email_confirmed_at) return false;
+      const { data: assurance, error: assuranceError } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assuranceError || assurance?.currentLevel !== "aal2") {
+        if (assuranceError) console.warn("Admin MFA assurance check failed:", assuranceError.message);
+        return false;
+      }
       const { data: adminRecord, error } = await supabaseClient
         .from("platform_admins")
         .select("user_id")
@@ -745,10 +750,114 @@
       Object.assign(adminUser, { role: "admin", password: null, is_active: true, is_demo: false, auth_user_id: authUser.id });
       db.currentUserId = adminUser.id;
       await saveDB();
+      closeModal();
       renderHeader();
       renderMain();
       showToast(`مرحباً بك يا ${adminUser.full_name}، تم التحقق من صلاحية مدير النظام.`);
       return true;
+    }
+
+    function showAdminPhoneCodeModal(factorId, challengeId, phone) {
+      openModal(`
+        <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">التحقق بخطوتين</h2>
+        <p class="text-sm text-[#735447] mb-4">أدخلي الرمز المرسل برسالة SMS إلى ${esc(phone)}.</p>
+        <form id="adminPhoneCodeForm" class="space-y-3">
+          <label class="block text-xs font-bold">رمز التحقق</label>
+          <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-center text-lg tracking-[0.4em]" placeholder="------" />
+          <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">تأكيد الرمز والدخول</button>
+        </form>
+      `);
+      document.getElementById("adminPhoneCodeForm").onsubmit = async event => {
+        event.preventDefault();
+        const code = new FormData(event.target).get("code").trim();
+        const { error } = await supabaseClient.auth.mfa.verify({ factorId, challengeId, code });
+        if (error) {
+          console.error("Admin SMS verification failed:", error.message);
+          return showToast("رمز التحقق غير صحيح أو انتهت صلاحيته. حاولي مجدداً.", "error");
+        }
+        const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+        if (userError || !user) {
+          console.error("Admin user lookup after MFA failed:", userError?.message || "No authenticated user");
+          return showToast("تعذر إكمال تسجيل الدخول. أعيدي المحاولة.", "error");
+        }
+        if (!await activateVerifiedAdmin(user)) {
+          await supabaseClient.auth.signOut();
+          return showToast("تعذر تأكيد صلاحية مدير النظام. تحققي من إعدادات الحساب ثم حاولي مجدداً.", "error");
+        }
+      };
+    }
+
+    async function challengeAdminPhoneFactor(factor) {
+      const { data, error } = await supabaseClient.auth.mfa.challenge({ factorId: factor.id });
+      if (error) {
+        console.error("Admin SMS challenge failed:", error.message);
+        return showToast("تعذر إرسال رمز SMS. تحققي من إعداد مزوّد الرسائل في Supabase.", "error");
+      }
+      showAdminPhoneCodeModal(factor.id, data.id, factor.phone);
+    }
+
+    async function startAdminMfa(authUser) {
+      if (!authUser || authUser.email?.toLowerCase() !== ADMIN_EMAIL || !authUser.email_confirmed_at) {
+        await supabaseClient.auth.signOut();
+        return showToast("هذا الحساب غير مخوّل كمدير للنظام.", "error");
+      }
+      const { data: assurance, error: assuranceError } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assuranceError) {
+        console.error("Admin MFA status check failed:", assuranceError.message);
+        return showToast("تعذر التحقق من إعدادات الأمان. حاولي مجدداً.", "error");
+      }
+      if (assurance?.currentLevel === "aal2") {
+        if (!await activateVerifiedAdmin(authUser)) {
+          await supabaseClient.auth.signOut();
+          showToast("تعذر تأكيد صلاحية مدير النظام.", "error");
+        }
+        return;
+      }
+
+      const { data: factors, error: factorsError } = await supabaseClient.auth.mfa.listFactors();
+      if (factorsError) {
+        console.error("Admin MFA factors lookup failed:", factorsError.message);
+        return showToast("تعذر قراءة عوامل التحقق لحسابك.", "error");
+      }
+      const phoneFactor = factors.phone.find(factor => factor.status === "verified");
+      if (phoneFactor) return challengeAdminPhoneFactor(phoneFactor);
+
+      openModal(`
+        <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">تفعيل التحقق بالجوال</h2>
+        <p class="text-sm text-[#735447] mb-4">هذه أول مرة لتسجيل الدخول الآمن. أدخلي رقمك بصيغة دولية، وسنرسل رمزاً لتوثيقه. سيُستخدم الرقم كعامل تحقق في مرات الدخول التالية.</p>
+        <form id="adminPhoneEnrollForm" class="space-y-3">
+          <label class="block text-xs font-bold">رقم الجوال بصيغة دولية</label>
+          <input name="phone" type="tel" autocomplete="tel" pattern="\\+[1-9][0-9]{7,14}" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm text-left" dir="ltr" placeholder="+9665XXXXXXXX" />
+          <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">إرسال رمز SMS</button>
+        </form>
+      `);
+      document.getElementById("adminPhoneEnrollForm").onsubmit = async event => {
+        event.preventDefault();
+        const phone = new FormData(event.target).get("phone").trim();
+        const pendingFactors = factors.phone.filter(factor => factor.status !== "verified");
+        for (const factor of pendingFactors) {
+          const { error } = await supabaseClient.auth.mfa.unenroll({ factorId: factor.id });
+          if (error) {
+            console.error("Pending admin phone factor cleanup failed:", error.message);
+            return showToast("تعذر إعادة تهيئة تحقق الجوال. حاولي مجدداً.", "error");
+          }
+        }
+        const { data: enrolledFactor, error } = await supabaseClient.auth.mfa.enroll({
+          factorType: "phone",
+          phone,
+          friendlyName: "Lamsa system administrator"
+        });
+        if (error) {
+          console.error("Admin phone factor enrollment failed:", error.message);
+          return showToast("تعذر إرسال رمز SMS. تحققي من رقم الجوال ومزوّد الرسائل في Supabase.", "error");
+        }
+        const { data: challenge, error: challengeError } = await supabaseClient.auth.mfa.challenge({ factorId: enrolledFactor.id });
+        if (challengeError) {
+          console.error("Initial admin SMS challenge failed:", challengeError.message);
+          return showToast("تم إعداد عامل الجوال لكن تعذر إرسال الرمز. حاولي مجدداً.", "error");
+        }
+        showAdminPhoneCodeModal(enrolledFactor.id, challenge.id, enrolledFactor.phone);
+      };
     }
 
     async function initializeAdminAuth() {
@@ -2583,17 +2692,6 @@
         const regBtn = document.getElementById("loginToRegisterBtn");
         regBtn.classList.toggle("hidden", selectedRole === "admin");
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
-        const passwordInput = document.querySelector('#loginForm [name="password"]');
-        const submitButton = document.querySelector('#loginForm button[type="submit"]');
-        const emailInput = document.querySelector('#loginForm [name="email"]');
-        const updateAdminLoginMode = () => {
-          const verifiedAdminLogin = selectedRole === "admin" && emailInput.value.trim().toLowerCase() === ADMIN_EMAIL;
-          passwordInput.classList.toggle("hidden", verifiedAdminLogin);
-          passwordInput.required = !verifiedAdminLogin;
-          submitButton.textContent = verifiedAdminLogin ? "إرسال رابط التحقق إلى بريدي" : "دخول";
-        };
-        emailInput.oninput = updateAdminLoginMode;
-        updateAdminLoginMode();
         document.querySelectorAll(".login-role-tab").forEach(btn => {
           btn.onclick = () => { selectedRole = btn.dataset.loginRole; paintLoginRoles(); };
         });
@@ -2608,16 +2706,13 @@
         const email = fd.get("email").trim().toLowerCase();
         const pwd = fd.get("password");
         if (selectedRole === "admin" && email === ADMIN_EMAIL) {
-          if (!supabaseClient) return showToast("خدمة التحقق غير متاحة حالياً", "error");
-          const { error } = await supabaseClient.auth.signInWithOtp({
-            email: ADMIN_EMAIL,
-            options: { emailRedirectTo: window.location.href.split("#")[0] }
-          });
+          if (!supabaseClient) return showToast("خدمة تسجيل الدخول غير متاحة حالياً", "error");
+          const { data, error } = await supabaseClient.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pwd });
           if (error) {
-            console.error("Admin sign-in request failed:", error.message);
-            return showToast("تعذر إرسال رابط التحقق. تحققي من إعدادات البريد وحاولي مرة أخرى.", "error");
+            console.error("Admin password sign-in failed:", error.message);
+            return showToast("تعذر تسجيل الدخول. تحققي من كلمة المرور ومن تأكيد البريد الإلكتروني.", "error");
           }
-          showToast("أرسلنا رابط تحقق إلى بريدك. افتحيه لإكمال تسجيل الدخول كمديرة النظام.");
+          await startAdminMfa(data.user);
           return;
         }
         const u = db.users.find(x => x.email === email && x.password === pwd);
