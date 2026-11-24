@@ -379,7 +379,9 @@
     const SUPABASE_URL = "https://gjoybqpjmiobsoskzlgf.supabase.co";
     const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_mtkJj_XSu4GhwQWUII1YYw_w51HcU_R";
     const ADMIN_EMAIL = "rery1986@gmail.com";
-    const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
     let verifiedAdminUserId = null;
     let adminPasswordRecoveryPending = false;
 
@@ -794,7 +796,7 @@
             showToast("جلسة الاستعادة غير صالحة لهذا الحساب. اطلبي رابطاً جديداً.", "error");
             return;
           }
-          const { error } = await supabaseClient.auth.updateUser({
+          const { data, error } = await supabaseClient.auth.updateUser({
             password,
             data: { ...user.user_metadata, full_name: fullName, phone }
           });
@@ -803,15 +805,13 @@
             showToast(`تعذر تحديث كلمة المرور: ${error.message}`, "error");
             return;
           }
-          const { error: signOutError } = await supabaseClient.auth.signOut();
-          adminPasswordRecoveryPending = false;
-          if (signOutError) {
-            console.error("Sign-out after password recovery failed:", signOutError.message);
-            return showToast("تم تحديث كلمة المرور، لكن تعذر إنهاء الجلسة. أغلقي الصفحة ثم سجّلي الدخول مجدداً.", "error");
+          if (!await activateVerifiedAdmin(data.user)) {
+            adminPasswordRecoveryPending = false;
+            return showToast("تم تحديث كلمة المرور، لكن تعذر التحقق من صلاحية المديرة. سجّلي الدخول مجدداً.", "error");
           }
+          adminPasswordRecoveryPending = false;
           root.classList.add("hidden");
-          showToast("تم تحديث كلمة المرور بنجاح. سجّلي الدخول بكلمتك الجديدة.");
-          showLoginModal("admin");
+          showToast("تم حفظ بياناتكِ وكلمة المرور، وبقيت جلسة مديرة النظام مفتوحة.");
         } catch (error) {
           console.error("Administrator password recovery request failed:", error);
           showToast("تعذر الاتصال بخدمة المصادقة. تحققي من الاتصال ثم حاولي مجدداً.", "error");
