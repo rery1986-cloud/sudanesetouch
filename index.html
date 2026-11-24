@@ -187,9 +187,10 @@
   <div id="modalRoot" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-4 overflow-y-auto">
     <div id="modalContent" class="bg-[#FBF7F2] rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl border border-[#C89D54]/40 relative"></div>
   </div>
+  <div id="adminPasswordRecoveryPage" class="fixed inset-0 z-[60] hidden overflow-y-auto bg-[#FBF7F2]"></div>
 
   <!-- Toast Container -->
-  <div id="toastContainer" class="fixed bottom-4 left-4 z-50 space-y-2"></div>
+  <div id="toastContainer" class="fixed bottom-4 left-4 z-[70] space-y-2"></div>
 
   <script>
     // =========================================================================
@@ -721,38 +722,80 @@
       }
     }
 
-    function showAdminPasswordRecoveryModal() {
-      openModal(`
-        <h2 class="text-xl font-extrabold text-[#4A332A] mb-3">تعيين كلمة مرور جديدة</h2>
-        <form id="adminPasswordRecoveryForm" class="space-y-3">
-          <label class="block text-xs font-bold">كلمة المرور الجديدة</label>
-          <input name="password" type="password" autocomplete="new-password" minlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
-          <label class="block text-xs font-bold">تأكيد كلمة المرور الجديدة</label>
-          <input name="confirm_password" type="password" autocomplete="new-password" minlength="6" required class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
-          <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">حفظ كلمة المرور</button>
-        </form>
-      `);
+    function getAuthRedirectURL() {
+      if (window.location.protocol !== "http:" && window.location.protocol !== "https:") {
+        throw new Error("يجب فتح الموقع عبر رابط HTTPS منشور حتى تعمل روابط البريد.");
+      }
+      return new URL(window.location.pathname, window.location.origin).toString();
+    }
+
+    function showAdminPasswordRecoveryPage() {
+      const root = document.getElementById("adminPasswordRecoveryPage");
+      root.innerHTML = `
+        <main class="min-h-screen flex items-center justify-center p-4 sudan-pattern">
+          <section class="glass-card w-full max-w-md rounded-3xl p-6 sm:p-8 space-y-4" aria-labelledby="adminRecoveryTitle">
+            <div class="text-center">
+              <div class="text-4xl mb-2" aria-hidden="true">🔐</div>
+              <h1 id="adminRecoveryTitle" class="text-2xl font-extrabold text-[#4A332A]">إعادة تعيين كلمة المرور</h1>
+              <p class="text-sm text-[#735447] mt-2">أدخلي كلمة مرور جديدة لحساب مديرة النظام.</p>
+            </div>
+            <form id="adminPasswordRecoveryForm" class="space-y-3">
+              <div>
+                <label for="adminRecoveryPassword" class="block text-sm font-bold mb-1">كلمة المرور الجديدة</label>
+                <input id="adminRecoveryPassword" name="password" type="password" autocomplete="new-password" minlength="6" required class="w-full px-4 py-3 rounded-xl bg-white border text-sm" />
+              </div>
+              <div>
+                <label for="adminRecoveryConfirmPassword" class="block text-sm font-bold mb-1">تأكيد كلمة المرور الجديدة</label>
+                <input id="adminRecoveryConfirmPassword" name="confirm_password" type="password" autocomplete="new-password" minlength="6" required class="w-full px-4 py-3 rounded-xl bg-white border text-sm" />
+              </div>
+              <button type="submit" class="btn-primary w-full py-3 rounded-xl font-bold text-sm">حفظ كلمة المرور</button>
+            </form>
+            <button type="button" id="adminRecoveryBackBtn" class="w-full py-2 text-sm font-bold text-[#A96B65] hover:underline">العودة إلى تسجيل الدخول</button>
+          </section>
+        </main>
+      `;
+      root.classList.remove("hidden");
+      document.getElementById("adminRecoveryBackBtn").onclick = async () => {
+        const { error } = await supabaseClient.auth.signOut();
+        if (error) {
+          console.error("Sign-out from password recovery failed:", error.message);
+          return showToast("تعذر إنهاء جلسة الاستعادة. أغلقي الصفحة ثم حاولي مجدداً.", "error");
+        }
+        adminPasswordRecoveryPending = false;
+        root.classList.add("hidden");
+        showLoginModal("admin");
+      };
       document.getElementById("adminPasswordRecoveryForm").onsubmit = async event => {
         event.preventDefault();
         const formData = new FormData(event.target);
-        const password = formData.get("password");
-        if (password !== formData.get("confirm_password")) {
+        const password = String(formData.get("password") || "");
+        if (password !== String(formData.get("confirm_password") || "")) {
           return showToast("كلمة المرور وتأكيدها غير متطابقين", "error");
         }
-        const { error } = await supabaseClient.auth.updateUser({ password });
-        if (error) {
-          console.error("Administrator password recovery failed:", error.message);
-          return showToast("تعذر تحديث كلمة المرور. استخدمي رابط الاستعادة الأحدث ثم حاولي مجدداً.", "error");
+        const submitButton = event.target.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        try {
+          const { error } = await supabaseClient.auth.updateUser({ password });
+          if (error) {
+            console.error("Administrator password recovery failed:", error.message);
+            showToast(`تعذر تحديث كلمة المرور: ${error.message}`, "error");
+            return;
+          }
+          const { error: signOutError } = await supabaseClient.auth.signOut();
+          adminPasswordRecoveryPending = false;
+          if (signOutError) {
+            console.error("Sign-out after password recovery failed:", signOutError.message);
+            return showToast("تم تحديث كلمة المرور، لكن تعذر إنهاء الجلسة. أغلقي الصفحة ثم سجّلي الدخول مجدداً.", "error");
+          }
+          root.classList.add("hidden");
+          showToast("تم تحديث كلمة المرور بنجاح. سجّلي الدخول بكلمتك الجديدة.");
+          showLoginModal("admin");
+        } catch (error) {
+          console.error("Administrator password recovery request failed:", error);
+          showToast("تعذر الاتصال بخدمة المصادقة. تحققي من الاتصال ثم حاولي مجدداً.", "error");
+        } finally {
+          submitButton.disabled = false;
         }
-        const { error: signOutError } = await supabaseClient.auth.signOut();
-        adminPasswordRecoveryPending = false;
-        closeModal();
-        if (signOutError) {
-          console.error("Sign-out after password recovery failed:", signOutError.message);
-          return showToast("تم تحديث كلمة المرور، لكن تعذر إنهاء الجلسة. أغلقي الصفحة ثم سجّلي الدخول مجدداً.", "error");
-        }
-        showToast("تم تحديث كلمة المرور. سجّلي الدخول بكلمتك الجديدة.");
-        showLoginModal("admin");
       };
     }
 
@@ -793,7 +836,7 @@
       supabaseClient.auth.onAuthStateChange((event, nextSession) => {
         if (event === "PASSWORD_RECOVERY" && nextSession?.user?.email?.toLowerCase() === ADMIN_EMAIL) {
           adminPasswordRecoveryPending = true;
-          setTimeout(showAdminPasswordRecoveryModal, 0);
+          setTimeout(showAdminPasswordRecoveryPage, 0);
         } else if (event === "PASSWORD_RECOVERY") {
           adminPasswordRecoveryPending = true;
           setTimeout(() => supabaseClient.auth.signOut(), 0);
@@ -2610,6 +2653,7 @@
           <input name="password" type="password" autocomplete="current-password" required placeholder="كلمة المرور" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
           <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">دخول</button>
           <button type="button" id="adminForgotPasswordBtn" class="hidden w-full text-xs font-bold text-[#A96B65] hover:underline">نسيت كلمة المرور؟ إرسال رابط إعادة التعيين</button>
+          <button type="button" id="adminResendConfirmationBtn" class="hidden w-full text-xs font-bold text-[#735447] hover:underline">إعادة إرسال رسالة تأكيد البريد الإلكتروني</button>
         </form>
         <button type="button" id="loginToRegisterBtn" class="mt-3 w-full text-xs font-bold text-[#A96B65] hover:underline"></button>
         <div class="mt-5 pt-4 border-t border-[#E8DACA]">
@@ -2634,6 +2678,7 @@
         regBtn.classList.toggle("hidden", selectedRole === "admin");
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
         document.getElementById("adminForgotPasswordBtn").classList.toggle("hidden", selectedRole !== "admin");
+        document.getElementById("adminResendConfirmationBtn").classList.toggle("hidden", selectedRole !== "admin");
         document.querySelectorAll(".login-role-tab").forEach(btn => {
           btn.onclick = () => { selectedRole = btn.dataset.loginRole; paintLoginRoles(); };
         });
@@ -2643,14 +2688,45 @@
       document.getElementById("loginToRegisterBtn").onclick = () => { closeModal(); showRegisterModal(selectedRole); };
       document.getElementById("adminForgotPasswordBtn").onclick = async () => {
         if (!supabaseClient) return showToast("خدمة إعادة تعيين كلمة المرور غير متاحة حالياً", "error");
-        const { error } = await supabaseClient.auth.resetPasswordForEmail(ADMIN_EMAIL, {
-          redirectTo: window.location.href.split("#")[0]
-        });
-        if (error) {
-          console.error("Administrator password reset request failed:", error.message);
-          return showToast("تعذر إرسال رابط إعادة التعيين. حاولي لاحقاً.", "error");
+        const button = document.getElementById("adminForgotPasswordBtn");
+        button.disabled = true;
+        try {
+          const redirectTo = getAuthRedirectURL();
+          const { error } = await supabaseClient.auth.resetPasswordForEmail(ADMIN_EMAIL, { redirectTo });
+          if (error) {
+            console.error("Administrator password reset request failed:", error.message);
+            return showToast(`تعذر إرسال رابط الاستعادة: ${error.message}. تحققي من السماح بعنوان العودة في إعدادات Supabase Auth.`, "error");
+          }
+          showToast("إذا كان الحساب موجوداً ومفعلاً، فسيصل رابط الاستعادة إلى البريد المسجل.");
+        } catch (error) {
+          console.error("Administrator password reset request failed:", error);
+          showToast(error.message || "تعذر الاتصال بخدمة إرسال رابط الاستعادة.", "error");
+        } finally {
+          button.disabled = false;
         }
-        showToast("إذا كان الحساب مفعلاً، فسيصل رابط إعادة تعيين كلمة المرور إلى بريده.");
+      };
+      document.getElementById("adminResendConfirmationBtn").onclick = async () => {
+        if (!supabaseClient) return showToast("خدمة تأكيد البريد غير متاحة حالياً", "error");
+        const button = document.getElementById("adminResendConfirmationBtn");
+        button.disabled = true;
+        try {
+          const emailRedirectTo = getAuthRedirectURL();
+          const { error } = await supabaseClient.auth.resend({
+            type: "signup",
+            email: ADMIN_EMAIL,
+            options: { emailRedirectTo }
+          });
+          if (error) {
+            console.error("Administrator confirmation resend failed:", error.message);
+            return showToast(`تعذر إعادة إرسال رسالة التأكيد: ${error.message}. تحققي من إعدادات البريد ورابط العودة في Supabase.`, "error");
+          }
+          showToast("إذا كان الحساب موجوداً وغير مؤكد، فستصل رسالة تأكيد إلى بريده المسجل.");
+        } catch (error) {
+          console.error("Administrator confirmation resend failed:", error);
+          showToast(error.message || "تعذر الاتصال بخدمة إرسال رسالة التأكيد.", "error");
+        } finally {
+          button.disabled = false;
+        }
       };
 
       document.getElementById("loginForm").onsubmit = async e => {
@@ -2663,7 +2739,7 @@
           const { error } = await supabaseClient.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pwd });
           if (error) {
             console.error("Admin password sign-in failed:", error.message);
-            return showToast("تعذر تسجيل الدخول. تحققي من كلمة المرور ومن تأكيد البريد الإلكتروني.", "error");
+            return showToast("تعذر تسجيل الدخول. تحققي من كلمة المرور وتأكيد البريد؛ ويمكنكِ إعادة إرسال التأكيد أو طلب رابط استعادة.", "error");
           }
           return;
         }
