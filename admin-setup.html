@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>إنشاء حساب مديرة النظام — Sudanese Touch</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { --brown:#4a332a; --pink:#c98e88; --cream:#f7f3ed; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; font-family:Tahoma,Arial,sans-serif; background:var(--cream); color:var(--brown); }
+    .wrap { min-height:100vh; display:grid; place-items:center; padding:24px 16px; }
+    .card { width:min(680px,100%); background:#fff; border-radius:20px; padding:32px; box-shadow:0 16px 44px rgba(74,51,42,.12); }
+    h1 { margin:0 0 8px; font-size:26px; }
+    .subtitle { margin:0 0 24px; color:#806d64; }
+    .notice { border-radius:12px; padding:12px 14px; margin:0 0 18px; background:#fff7e8; border:1px solid #e8d8b7; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .full { grid-column:1/-1; }
+    label { display:block; font-weight:bold; margin-bottom:7px; }
+    input, textarea { width:100%; border:1px solid #d8cbbd; border-radius:11px; padding:12px 13px; background:#fff; color:#362820; font:inherit; }
+    input:dir(ltr), textarea:dir(ltr) { direction:ltr; }
+    textarea { min-height:90px; resize:vertical; }
+    .password { position:relative; }
+    .password input { padding-left:52px; }
+    .toggle { position:absolute; left:8px; top:7px; border:0; background:#f1ebe5; color:var(--brown); border-radius:8px; min-width:38px; height:34px; cursor:pointer; }
+    .strength { margin-top:7px; font-size:13px; }
+    .weak { color:#a54135; } .good { color:#2d7a55; }
+    button.primary { width:100%; border:0; border-radius:12px; padding:14px; margin-top:22px; background:var(--brown); color:#fff; font:700 16px Tahoma; cursor:pointer; }
+    button.primary:disabled { opacity:.65; cursor:not-allowed; }
+    .message { min-height:24px; margin-top:14px; text-align:center; }
+    .error { color:#a54135; } .success { color:#2d7a55; }
+    @media (max-width:620px) { .card{padding:22px 18px}.grid{grid-template-columns:1fr}.full{grid-column:auto} }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <form class="card" id="setupForm">
+      <h1>إنشاء حساب مديرة النظام الرئيسي</h1>
+      <p class="subtitle">هذه الصفحة مخصصة لإنشاء الحساب الإداري الأول فقط.</p>
+      <div class="notice">لن تُمنح الصلاحية لأي بريد أو حساب عام غير مُصرّح به في إعدادات المشروع.</div>
+
+      <div class="grid">
+        <div>
+          <label for="fullName">الاسم الكامل</label>
+          <input id="fullName" name="fullName" autocomplete="name" required>
+        </div>
+        <div>
+          <label for="email">البريد الإلكتروني</label>
+          <input id="email" name="email" type="email" autocomplete="email" dir="ltr" required>
+        </div>
+        <div>
+          <label for="phone">رقم الجوال</label>
+          <input id="phone" name="phone" type="tel" autocomplete="tel" dir="ltr" required>
+        </div>
+        <div>
+          <label for="username">اسم المستخدم</label>
+          <input id="username" name="username" autocomplete="username" dir="ltr" required>
+        </div>
+        <div class="full">
+          <label for="details">تفاصيل الحساب الإداري</label>
+          <textarea id="details" name="details" placeholder="اختياري — مثل النطاق الإداري والمسؤوليات" required></textarea>
+        </div>
+        <div>
+          <label for="password">كلمة المرور الجديدة</label>
+          <div class="password">
+            <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" dir="ltr" required>
+            <button class="toggle" type="button" data-target="password" aria-label="إظهار كلمة المرور">عرض</button>
+          </div>
+          <div id="strength" class="strength"></div>
+        </div>
+        <div>
+          <label for="confirmPassword">تأكيد كلمة المرور</label>
+          <div class="password">
+            <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" dir="ltr" required>
+            <button class="toggle" type="button" data-target="confirmPassword" aria-label="إظهار كلمة المرور">عرض</button>
+          </div>
+        </div>
+      </div>
+
+      <button class="primary" id="submitBtn" type="submit">إنشاء حساب مديرة النظام</button>
+      <div id="message" class="message" role="status" aria-live="polite"></div>
+    </form>
+  </main>
+
+  <script>
+    const SUPABASE_URL = 'https://SUDANESE_TOUCH_PROJECT.supabase.co';
+    const SUPABASE_ANON_KEY = 'SUDANESE_TOUCH_ANON_KEY';
+
+    const $ = (id) => document.getElementById(id);
+    const form = $('setupForm');
+    const message = $('message');
+
+    function setMessage(text, type = '') {
+      message.className = 'message ' + type;
+      message.textContent = text;
+    }
+
+    function passwordScore(password) {
+      let score = 0;
+      if (password.length >= 12) score++;
+      if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+      if (/\d/.test(password)) score++;
+      if (/[^A-Za-z0-9]/.test(password)) score++;
+      return score;
+    }
+
+    $('password').addEventListener('input', (event) => {
+      const password = event.target.value;
+      const score = passwordScore(password);
+      const strength = $('strength');
+      if (!password) { strength.textContent = ''; return; }
+      if (score < 3) {
+        strength.className = 'strength weak';
+        strength.textContent = 'كلمة مرور ضعيفة — استخدمي 12 حرفًا أو أكثر بحروف وأرقام ورمز.';
+      } else {
+        strength.className = 'strength good';
+        strength.textContent = 'قوة كلمة المرور جيدة.';
+      }
+    });
+
+    document.querySelectorAll('.toggle').forEach((button) => {
+      button.addEventListener('click', () => {
+        const input = $(button.dataset.target);
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        button.textContent = show ? 'إخفاء' : 'عرض';
+      });
+    });
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const fullName = $('fullName').value.trim();
+      const email = $('email').value.trim().toLowerCase();
+      const phone = $('phone').value.trim();
+      const username = $('username').value.trim();
+      const details = $('details').value.trim();
+      const password = $('password').value;
+      const confirmation = $('confirmPassword').value;
+
+      if (password.length < 12 || passwordScore(password) < 3) {
+        setMessage('كلمة المرور ضعيفة. يلزم 12 حرفًا على الأقل مع تنوع في الأحرف والأرقام والرموز.', 'error');
+        return;
+      }
+      if (password !== confirmation) {
+        setMessage('كلمتا المرور غير متطابقتين.', 'error');
+        return;
+      }
+
+      $('submitBtn').disabled = true;
+      setMessage('جاري إنشاء حساب مديرة النظام...');
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: new URL('/index.html', window.location.origin).href,
+          data: { full_name:fullName, phone, username, account_details:details, role:'super_admin' }
+        }
+      });
+
+      if (error) {
+        setMessage(error.message, 'error');
+        $('submitBtn').disabled = false;
+        return;
+      }
+
+      if (data.user && data.session) {
+        const { error: claimError } = await supabase.rpc('claim_first_super_admin', {
+          p_full_name: fullName,
+          p_phone: phone,
+          p_username: username,
+          p_details: details
+        });
+        if (claimError) {
+          await supabase.auth.signOut();
+          setMessage(claimError.message, 'error');
+          $('submitBtn').disabled = false;
+          return;
+        }
+        setMessage('تم إنشاء حساب مديرة النظام بنجاح. جاري الانتقال إلى لوحة الإدارة...', 'success');
+        window.setTimeout(() => { window.location.href = '/index.html#admin'; }, 900);
+        return;
+      }
+
+      setMessage('تم إنشاء الحساب وإرسال رابط تأكيد البريد. أكدي البريد أولًا، ثم سجلي الدخول للانتقال إلى لوحة الإدارة.', 'success');
+      window.setTimeout(() => { window.location.href = '/index.html#login'; }, 1800);
+    });
+  </script>
+</body>
+</html>
