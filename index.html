@@ -822,6 +822,12 @@
         db.users.push(adminUser);
       }
       Object.assign(adminUser, { role: "admin", password: null, is_active: true, is_demo: false, auth_user_id: authUser.id });
+      if (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) {
+        adminUser.full_name = authUser.user_metadata.full_name.trim();
+      }
+      if (typeof authUser.user_metadata?.phone === "string") {
+        adminUser.phone_private = authUser.user_metadata.phone;
+      }
       db.currentUserId = adminUser.id;
       await saveDB();
       closeModal();
@@ -2638,7 +2644,7 @@
         { id: "client", label: "عميلة", icon: "👩", hint: "للعميلات اللواتي يحجزن خدمات التجميل." },
         { id: "provider", label: "خبيرة تجميل", icon: "💄", hint: "لمقدمات الخدمة: الحنة، المكياج، الشعر، الرموش..." },
         { id: "merchant", label: "تاجرة / بازار", icon: "🛍️", hint: "لصاحبات المتاجر والبازارات: بخور، ثياب، إكسسوارات..." },
-        { id: "admin", label: "الإدارة", icon: "👑", hint: "لمديرة النظام والمشرفات." }
+        { id: "admin", label: "مديرة النظام", icon: "👑", hint: "مديرة النظام والمشرفات المعتمدات." }
       ];
       const ROLE_NAMES = { admin: "مديرة النظام", moderator: "مشرفة", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" };
       let selectedRole = LOGIN_ROLES.some(r => r.id === presetRole) ? presetRole : "client";
@@ -2654,6 +2660,7 @@
           <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">دخول</button>
           <button type="button" id="adminForgotPasswordBtn" class="hidden w-full text-xs font-bold text-[#A96B65] hover:underline">نسيت كلمة المرور؟ إرسال رابط إعادة التعيين</button>
           <button type="button" id="adminResendConfirmationBtn" class="hidden w-full text-xs font-bold text-[#735447] hover:underline">إعادة إرسال رسالة تأكيد البريد الإلكتروني</button>
+          <a id="adminCredentialsLink" href="admin-credentials.html" target="_blank" rel="noopener noreferrer" class="hidden block w-full rounded-xl border border-[#C89D54]/60 bg-[#EFE0C3]/60 px-3 py-2.5 text-center text-xs font-extrabold text-[#4A332A] hover:bg-[#EFE0C3]">بيانات مديرة النظام القابلة للتعديل</a>
         </form>
         <button type="button" id="loginToRegisterBtn" class="mt-3 w-full text-xs font-bold text-[#A96B65] hover:underline"></button>
         <div class="mt-5 pt-4 border-t border-[#E8DACA]">
@@ -2679,6 +2686,7 @@
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
         document.getElementById("adminForgotPasswordBtn").classList.toggle("hidden", selectedRole !== "admin");
         document.getElementById("adminResendConfirmationBtn").classList.toggle("hidden", selectedRole !== "admin");
+        document.getElementById("adminCredentialsLink").classList.toggle("hidden", selectedRole !== "admin");
         document.querySelectorAll(".login-role-tab").forEach(btn => {
           btn.onclick = () => { selectedRole = btn.dataset.loginRole; paintLoginRoles(); };
         });
@@ -3782,6 +3790,8 @@
             showToast("هذا البريد الإلكتروني مستخدم لحساب آخر", "error");
             return;
           }
+          const newFullName = document.getElementById("myProfName").value.trim();
+          const newPhone = document.getElementById("myProfPhone").value.trim();
           const newPwd = document.getElementById("myProfNewPwd").value;
           const confirmPwd = document.getElementById("myProfConfirmPwd").value;
           if (newPwd || confirmPwd) {
@@ -3793,20 +3803,29 @@
               showToast("كلمة المرور الجديدة وتأكيدها غير متطابقين", "error");
               return;
             }
-            if (isSuperAdmin) {
-              const { error } = await supabaseClient.auth.updateUser({ password: newPwd });
-              if (error) {
-                console.error("Administrator password update failed:", error.message);
-                return showToast("تعذر تحديث كلمة المرور. حاولي مجدداً.", "error");
-              }
-              me.password = null;
-            } else {
-              me.password = newPwd;
-            }
           }
-          me.full_name = document.getElementById("myProfName").value.trim();
+          if (isSuperAdmin) {
+            const { data: { user: authUser }, error: authUserError } = await supabaseClient.auth.getUser();
+            if (authUserError || !authUser) {
+              console.error("Administrator profile verification failed:", authUserError?.message || "No authenticated user");
+              return showToast("تعذر التحقق من جلسة مديرة النظام. سجّلي الدخول مجدداً.", "error");
+            }
+            const updates = {
+              data: { ...authUser.user_metadata, full_name: newFullName, phone: newPhone }
+            };
+            if (newPwd) updates.password = newPwd;
+            const { error } = await supabaseClient.auth.updateUser(updates);
+            if (error) {
+              console.error("Administrator profile update failed:", error.message);
+              return showToast("تعذر حفظ بيانات مديرة النظام. حاولي مجدداً.", "error");
+            }
+            if (newPwd) me.password = null;
+          } else if (newPwd) {
+            me.password = newPwd;
+          }
+          me.full_name = newFullName;
           me.email = newEmail;
-          me.phone_private = document.getElementById("myProfPhone").value.trim();
+          me.phone_private = newPhone;
           me.country = document.getElementById("myProfCountry").value;
           me.city = document.getElementById("myProfCity").value;
           saveDB();
