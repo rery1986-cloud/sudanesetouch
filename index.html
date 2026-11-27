@@ -2738,7 +2738,7 @@ async function showDisputeDetail(id, box) {
 
           <!-- Services -->
           <div class="space-y-4">
-            <h2 class="text-xl font-extrabold text-[#4A332A]">قائمة الخدمات والأسعار</h2>
+            <h2 class="text-xl font-extrabold text-[#4A332A]">قائمة الخدمات والأسعار</h2>${svcs.length ? "" : '<p class="text-sm text-[#735447]">لم تضف الخبيرة خدماتها بعد. يمكنكِ مراسلتها للاتفاق على الحجز.</p>'}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               ${svcs.map(s => `
                 <div class="glass-card p-5 rounded-2xl flex items-center justify-between gap-4">
@@ -4460,12 +4460,13 @@ async function showDisputeDetail(id, box) {
       const list = document.getElementById("chatInboxList"); if (!list) return;
       if (r.error) { list.textContent = "تعذر التحميل: " + r.error.message; return; }
       if (!r.data.length) { list.innerHTML = '<p class="text-sm text-[#735447]">لا توجد محادثات بعد. افتحي صفحة خبيرة واضغطي مراسلة.</p>'; return; }
-      const sc = await supabaseClient.rpc("my_staff_chats"); const staffMap = {}; (sc.data || []).forEach(x => { staffMap[x.id] = x.other_name; });
+      const nm = await supabaseClient.rpc("my_chat_names"); const nameMap = {}; (Array.isArray(nm.data) ? nm.data : []).forEach(x => { nameMap[x.id] = x; });
+        const sc = await supabaseClient.rpc("my_staff_chats"); const staffMap = {}; (sc.data || []).forEach(x => { staffMap[x.id] = x.other_name; });
       list.innerHTML = "";
       r.data.forEach(c => {
         const mineAsCustomer = c.customer_user_id === me;
         const other = mineAsCustomer ? db.providerProfiles.find(x => x.supabase_id === c.provider_id || x.auth_user_id === c.provider_user_id) : db.users.find(x => x.auth_user_id === c.customer_user_id);
-        const name = c.kind === "staff" ? "💼 " + (staffMap[c.id] || "فريق العمل") : (other ? (other.display_name || other.full_name) : (mineAsCustomer ? "الخبيرة" : "عميلة"));
+        const nmx = nameMap[c.id]; const name = c.kind === "staff" ? "💼 " + (staffMap[c.id] || "فريق العمل") : (nmx && nmx.other_name ? nmx.other_name + (nmx.other_city ? " (" + nmx.other_city + ")" : "") : other ? (other.display_name || other.full_name) : (mineAsCustomer ? "الخبيرة" : "عميلة"));
         const b = document.createElement("button");
         b.className = "w-full text-right p-3 rounded-xl bg-white border text-sm hover:bg-[#F3EAE0]";
         b.textContent = "💬 " + name + " · " + chatTime(c.last_message_at);
