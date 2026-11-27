@@ -723,9 +723,10 @@
       if (coreSyncInFlight) return coreSyncInFlight;
       coreSyncInFlight = (async () => {
         try {
-          const [{ data: remoteProviders, error: pe }, { data: remoteServices, error: se }] = await Promise.all([
+          const [{ data: remoteProviders, error: pe }, { data: remoteServices, error: se }, { data: remoteWorks }] = await Promise.all([
             supabaseClient.from("service_providers").select("id, user_id, display_name, bio, service_categories, city, district, is_available, average_rating, avatar_url, verification_status"),
-            supabaseClient.from("service_offers").select("*").eq("status", "published")
+            supabaseClient.from("service_offers").select("*").eq("status", "published"),
+            supabaseClient.from("portfolio_items").select("id, provider_id, image_url, caption, created_at")
           ]);
           if (pe || se) { console.warn("Supabase core read unavailable:", pe?.message || se?.message); return false; }
           const authToLocal = new Map(db.users.filter(u => u.auth_user_id).map(u => [u.auth_user_id, u.id]));
@@ -745,6 +746,13 @@
             const cat = (db.categories || []).find(c => c.slug === row.category);
             Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: cat ? cat.id : (local.category_id || null), title: row.title, description: row.description || "", price_sar: Number(row.price || 0), currency: row.currency || "SAR", duration_min: Number(row.duration_minutes || 60), home_service: true, salon_service: true, is_active: true, is_demo: false });
           });
+          (remoteWorks || []).forEach(row => {
+            const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id);
+            if (!provider) return;
+            let local = db.portfolio.find(x => x.supabase_id === row.id);
+            if (!local) { local = { id: db.portfolio.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1 }; db.portfolio.push(local); }
+            Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: local.category_id || 1, title: row.caption || "عمل من المعرض", caption: row.caption || "", media_type: "image", media_url: row.image_url, is_promoted: false, is_demo: false });
+          });
           const { data: authData } = await supabaseClient.auth.getUser();
           if (authData?.user?.id) {
             const { data: rows, error: be } = await supabaseClient.from("bookings").select("*").order("created_at", { ascending: false });
@@ -762,6 +770,22 @@
       return coreSyncInFlight;
     }
     const CURRENCY_BY_COUNTRY = { SA: "SAR", EG: "EGP", AE: "AED", SD: "SDG", KW: "KWD", QA: "QAR", BH: "BHD", OM: "OMR", JO: "JOD", LY: "LYD" };
+    async function uploadPortfolioImage(file, profile) {
+      const user = currentUser();
+      if (!supabaseClient || !user?.auth_user_id) { showToast("سجّلي الدخول أولاً", "error"); return null; }
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { showToast("الصيغ المسموحة: JPG أو PNG أو WEBP فقط", "error"); return null; }
+      if (file.size > 5 * 1024 * 1024) { showToast("حجم الصورة أكبر من 5 ميغابايت", "error"); return null; }
+      if (!profile.supabase_id) await ensureProviderRow(profile, user.auth_user_id);
+      if (!profile.supabase_id) return null;
+      const ext = file.type === "image/png" ? "png" : (file.type === "image/webp" ? "webp" : "jpg");
+      const path = user.auth_user_id + "/" + Date.now() + "." + ext;
+      const up = await supabaseClient.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+      if (up.error) { console.warn("Supabase upload failed:", up.error.message); showToast("تعذر رفع الصورة: " + up.error.message, "error"); return null; }
+      const url = supabaseClient.storage.from("media").getPublicUrl(path).data.publicUrl;
+      const ins = await supabaseClient.from("portfolio_items").insert({ provider_id: profile.supabase_id, image_url: url, caption: "" }).select("id").single();
+      if (ins.error) { console.warn("Supabase portfolio save failed:", ins.error.message); showToast("تعذر حفظ العمل: " + ins.error.message, "error"); return null; }
+      return { url, id: ins.data.id };
+    }
     async function ensureProviderRow(profile, authUserId) {
       if (!supabaseClient || !authUserId || !profile) return null;
       const fields = { display_name: profile.display_name, bio: profile.bio || "", service_categories: Array.isArray(profile.specialties) ? profile.specialties : [], city: profile.city || "", district: profile.district || "" };
@@ -2250,11 +2274,11 @@
 
           <!-- Upload Portfolio -->
           <div class="glass-card p-6 rounded-3xl space-y-4">
-            <h2 class="text-lg font-bold">رفع أعمال جديدة إلى معرض الأعمال (صور أو فيديو)</h2>
+            <h2 class="text-lg font-bold">رفع أعمال جديدة إلى معرض الأعمال (صور JPG/PNG/WEBP حتى 5 ميغابايت)</h2>
             <form id="addPortfolioForm" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
               <input name="title" class="px-3 py-2 rounded-xl bg-[#FBF7F2] border text-sm" placeholder="عنوان العمل" required />
               <input name="caption" class="px-3 py-2 rounded-xl bg-[#FBF7F2] border text-sm" placeholder="وصف مختصر" />
-              <input name="media_file" type="file" accept="image/*,video/*" class="text-xs" required />
+              <input name="media_file" type="file" accept="image/jpeg,image/png,image/webp" class="text-xs" required />
               <button type="submit" class="btn-primary py-2.5 px-4 rounded-xl text-sm font-bold">رفع ونشر</button>
             </form>
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -3725,21 +3749,16 @@
           const fd = new FormData(e.target);
           const file = fd.get("media_file");
           const p = db.providerProfiles.find(x => x.user_id === currentUser().id);
-          const reader = new FileReader();
-          reader.onload = () => {
-            db.portfolio.push({
-              id: Date.now(), provider_id: p.id, category_id: 1,
-              title: fd.get("title"), caption: fd.get("caption"),
-              media_type: file.type.startsWith("video/") ? "video" : "image",
-              media_url: reader.result, is_promoted: false
-            });
-            saveDB(); renderMain(); showToast("تم رفع العمل إلى المعرض");
-          };
-          reader.readAsDataURL(file);
+          (async () => {
+            const res = await uploadPortfolioImage(file, p);
+            if (!res) return;
+            db.portfolio.push({ id: db.portfolio.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1, supabase_id: res.id, provider_id: p.id, category_id: 1, title: fd.get("title"), caption: fd.get("caption"), media_type: "image", media_url: res.url, is_promoted: false });
+            saveDB(); renderMain(); showToast(p.approval_status === "approved" ? "تم رفع العمل إلى المعرض" : "تم رفع العمل، وسيظهر للجميع بعد اعتماد الإدارة لحسابك");
+          })();
         };
       }
       document.querySelectorAll(".del-work-btn").forEach(b => {
-        b.onclick = () => { db.portfolio = db.portfolio.filter(w => w.id !== Number(b.dataset.delWork)); saveDB(); renderMain(); };
+        b.onclick = () => { const w0 = db.portfolio.find(w => w.id === Number(b.dataset.delWork)); if (w0?.supabase_id && supabaseClient) void supabaseClient.from("portfolio_items").delete().eq("id", w0.supabase_id).then(r => { if (r.error) showToast("تعذر الحذف من الخادم: " + r.error.message, "error"); }); db.portfolio = db.portfolio.filter(w => w.id !== Number(b.dataset.delWork)); saveDB(); renderMain(); };
       });
 
       // Admin actions
