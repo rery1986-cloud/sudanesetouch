@@ -1356,13 +1356,18 @@
         if (p && !p.is_demo) p.reviews_count = db.reviews.filter(r => r.provider_id === id && !r.is_hidden).length;
       });
     }
+    async function selProv(cols) {
+      let r = await supabaseClient.from("service_providers").select(cols);
+      if (r.error && /permission denied/i.test(r.error.message || "")) r = await supabaseClient.from("service_providers").select(cols.replace("id, user_id,", "id,"));
+      return r;
+    }
     async function syncCoreDataFromSupabase() {
       if (!supabaseClient) return false;
       if (coreSyncInFlight) return coreSyncInFlight;
       coreSyncInFlight = (async () => {
         try {
           const [{ data: remoteProviders, error: pe }, { data: remoteServices, error: se }, { data: remoteWorks }] = await Promise.all([
-            supabaseClient.from("service_providers").select("id, user_id, display_name, bio, service_categories, city, district, is_available, average_rating, avatar_url, verification_status, subscription_paused"),
+            selProv("id, user_id, display_name, bio, service_categories, city, district, is_available, average_rating, avatar_url, verification_status, subscription_paused"),
             supabaseClient.from("service_offers").select("*").eq("status", "published"),
             supabaseClient.from("portfolio_items").select("id, provider_id, image_url, caption, created_at")
           ]);
