@@ -1235,14 +1235,15 @@ async function showAdminUserDetail(uid) {
       db = shrinkEmbeddedAssets(db);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
       scheduleAdPush();
-      if (!supabaseClient || !verifiedAdminUserId) return;
+      if (!supabaseClient || !verifiedAdminUserId) return true;
       try {
         const { error } = await supabaseClient
           .from("app_state")
           .upsert({ id: "main", data: db, updated_at: new Date().toISOString() }, { onConflict: "id" });
-        if (error) console.warn("Supabase save error:", error.message);
+        if (error) { console.warn("Supabase save error:", error.message); return false; }
+        return true;
       } catch (e) {
-        console.warn("Supabase save unavailable:", e);
+        console.warn("Supabase save unavailable:", e); return false;
       }
     }
 
@@ -3545,7 +3546,7 @@ async function showDisputeDetail(id, box) {
               </div>
               <span class="px-3 py-1 rounded-full bg-[#F3EAE0] text-[#4A332A] text-xs font-bold">📧 ${esc(me.email)}</span>
             </div>
-            <form id="adminMyProfileForm" class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA]">
+            <div class="flex flex-wrap items-center gap-2"><button type="button" id="myProfToggleBtn" class="px-4 py-2 rounded-xl bg-[#4A332A] text-white text-xs font-bold">${window.__myProfOpen ? "إغلاق" : "✏️ تعديل بياناتي"}</button><span id="myProfSavedLine" class="text-xs font-bold text-green-700">${localStorage.getItem("lamsa_prof_saved_" + me.id) ? "✅ آخر حفظ: " + esc(localStorage.getItem("lamsa_prof_saved_" + me.id)) : ""}</span></div><form id="adminMyProfileForm" class="${window.__myProfOpen ? "" : "hidden "}grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA]">
               <div class="sm:col-span-2">
                 <label class="block text-[11px] font-bold text-[#4A332A] mb-1">الاسم الكامل</label>
                 <input id="myProfName" value="${esc(me.full_name)}" class="w-full px-3 py-2 rounded-xl bg-white border text-xs font-bold" required />
@@ -5279,6 +5280,8 @@ async function showDisputeDetail(id, box) {
         };
       }
       const myProfForm = document.getElementById("adminMyProfileForm");
+      const myProfTog = document.getElementById("myProfToggleBtn");
+      if (myProfTog && myProfForm) myProfTog.onclick = () => { window.__myProfOpen = !window.__myProfOpen; myProfForm.classList.toggle("hidden", !window.__myProfOpen); myProfTog.textContent = window.__myProfOpen ? "إغلاق" : "✏️ تعديل بياناتي"; };
       if (myProfForm) {
         myProfForm.onsubmit = async e => {
           e.preventDefault();
@@ -5345,10 +5348,13 @@ async function showDisputeDetail(id, box) {
           me.phone_private = newPhone;
           me.country = document.getElementById("myProfCountry").value;
           me.city = document.getElementById("myProfCity").value;
-          saveDB();
+          const __saveOk = await saveDB();
+          window.__myProfOpen = false; window.__myProfOk = __saveOk;
+          if (__saveOk) { try { localStorage.setItem("lamsa_prof_saved_" + me.id, new Date().toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" })); } catch (e) {} }
           renderHeader();
           renderMain();
-          showToast("تم تأكيد هويتكِ وحفظ تعديلات بياناتكِ بنجاح ✅");
+          if (window.__myProfOk) showToast("تم تأكيد هويتكِ وحفظ تعديلات بياناتكِ بنجاح ✅");
+          else { showToast("تعذر الحفظ في السحابة. حاولي مجدداً.", "error"); const __ml = document.getElementById("myProfSavedLine"); if (__ml) { __ml.className = "text-xs font-bold text-red-700"; __ml.textContent = "❌ لم يتم الحفظ في السحابة، حاولي مجدداً"; } }
         };
       }
 
