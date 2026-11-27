@@ -985,7 +985,20 @@
       bazaars: [["الاسم", x => esc(x.name || "-")], ["المنظِّمة", x => esc(x.organizer_name || "-")], ["المكان", x => esc((x.venue || "-") + " / " + (x.city || "-"))], ["من", x => aovD(x.starts_at)], ["إلى", x => aovD(x.ends_at)], ["الحالة", x => aovSt(x.status)]]
     };
     const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}], discounts: ["admin_list_discount_codes", {}], reviews: ["admin_list_reviews", {}] };
-    let aovTab = "summary", aovRows = [];
+    let aovTab = "summary", aovRows = [], modCanApprove = false;
+    const MOD_TAB_PERM = { providers: "manage_providers", ads: "manage_ads", bazaars: "manage_ads", disputes: "manage_reports" };
+    const MOD_RPC = { providers: ["mod_list_users", { p_type: "service_provider" }], ads: ["mod_list_ads", {}], bazaars: ["mod_list_bazaars", {}] };
+    const MOD_COLS = {
+      providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التسجيل", x => aovD(x.created_at)], ["إجراء", x => modCanApprove ? aovAct("provider", x.provider_id, x.provider_status) : "-"]],
+      ads: [["العنوان", x => esc(x.title || "-")], ["المعلن", x => esc(x.advertiser_name || "-")], ["الموضع", x => esc(x.placement || "-")], ["الحالة", x => aovSt(x.status)], ["التاريخ", x => aovD(x.created_at)], ["إجراء", x => modCanApprove ? aovAct("ad", x.id, x.status) : "-"]],
+      bazaars: [["الاسم", x => esc(x.name || "-")], ["المنظِّمة", x => esc(x.organizer_name || "-")], ["المكان", x => esc((x.venue || "-") + " / " + (x.city || "-"))], ["من", x => aovD(x.starts_at)], ["إلى", x => aovD(x.ends_at)], ["الحالة", x => aovSt(x.status)]]
+    };
+    function isModUser() { const u = currentUser(); return !!u && u.role === "moderator"; }
+    function aovVisibleTabs() {
+      if (!isModUser()) return AOV_TABS;
+      const u = currentUser(); const perms = Array.isArray(u.permissions) ? u.permissions : [];
+      return AOV_TABS.filter(t => t[0] === "staff" || (MOD_TAB_PERM[t[0]] && perms.includes(MOD_TAB_PERM[t[0]])));
+    }
     function aovAct(kind, id, st) {
       if (!id) return "-";
       const btn = (s, label, cls) => '<button type="button" class="adm-st px-2 py-1 rounded font-bold ' + cls + '" data-k="' + kind + '" data-id="' + esc(id) + '" data-s="' + s + '">' + label + '</button> ';
@@ -1003,10 +1016,10 @@
     }
     function aovTable() {
       const q = ((document.getElementById("admOvSearch") || {}).value || "").trim().toLowerCase();
-      const cols = AOV_COLS[aovTab];
+      const cols = (isModUser() && MOD_COLS[aovTab]) || AOV_COLS[aovTab];
       const rows = aovRows.filter(x => !q || JSON.stringify(x).toLowerCase().includes(q));
       const t = document.getElementById("admOvTable"); if (!t) return;
-      t.innerHTML = '<p class="mb-2 text-[11px]">العدد: ' + rows.length + ' من ' + aovRows.length + '</p><div class="overflow-x-auto"><table class="w-full text-[11px] text-right"><thead><tr class="bg-[#EFE0C3]">'
+      t.innerHTML = (isModUser() && !modCanApprove && (aovTab === "providers" || aovTab === "ads") ? '<p class="mb-2 text-[11px] font-bold">للمراجعة فقط: الاعتماد والرفض من الإدارة.</p>' : "") + '<p class="mb-2 text-[11px]">العدد: ' + rows.length + ' من ' + aovRows.length + '</p><div class="overflow-x-auto"><table class="w-full text-[11px] text-right"><thead><tr class="bg-[#EFE0C3]">'
         + cols.map(c => '<th class="p-2 whitespace-nowrap">' + c[0] + '</th>').join("") + '</tr></thead><tbody>'
         + (rows.map(x => '<tr class="border-t border-[#E8DACA]">' + cols.map(c => '<td class="p-2 whitespace-nowrap">' + c[1](x) + '</td>').join("") + '</tr>').join("") || '<tr><td class="p-3" colspan="' + cols.length + '">لا توجد بيانات.</td></tr>')
         + '</tbody></table></div>';
@@ -1042,7 +1055,8 @@
       if (aovTab === "subs") { await renderAdmSubs(body); return; }
       if (aovTab === "disputes") { await renderDisputesStaff(body); return; }
       if (aovTab === "staff") { await renderStaffChat(body); return; }
-      const spec = AOV_RPC[aovTab];
+      const spec = (isModUser() ? MOD_RPC : AOV_RPC)[aovTab];
+      if (!spec) { body.textContent = "هذا القسم غير متاح لصلاحياتكِ."; return; }
       const r = await supabaseClient.rpc(spec[0], spec[1]);
       if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
       aovRows = r.data || [];
@@ -1053,7 +1067,7 @@
         body.onclick = async ev => {
           const b = ev.target.closest(".adm-st"); if (!b) return;
           if (!confirm(b.dataset.s === "rejected" ? "تأكيد الرفض؟" : "تأكيد الاعتماد؟")) return;
-          const m = { provider: ["set_provider_status", "p_provider_id"], merchant: ["set_merchant_status", "p_merchant_id"], ad: ["set_ad_status", "p_ad_id"] }[b.dataset.k];
+          const m = { provider: [isModUser() ? "mod_set_provider_status" : "set_provider_status", "p_provider_id"], merchant: ["set_merchant_status", "p_merchant_id"], ad: [isModUser() ? "mod_set_ad_status" : "set_ad_status", "p_ad_id"] }[b.dataset.k];
           const args = { p_status: b.dataset.s }; args[m[1]] = b.dataset.id;
           b.disabled = true;
           const rr = await supabaseClient.rpc(m[0], args);
@@ -1102,8 +1116,13 @@
     async function loadAdminOverview() {
       const box = document.getElementById("adminOverviewBox"); if (!box || !supabaseClient) return;
       const dab = document.getElementById("demoAdminBox"); if (dab) dab.classList.remove("hidden");
-      box.innerHTML = '<div class="flex flex-wrap gap-1.5 mb-3">' + AOV_TABS.map(t => '<button type="button" data-t="' + t[0] + '" class="adm-ov-tab"></button>').join("") + '</div><div id="admOvBody"></div>';
+      box.innerHTML = '<div class="flex flex-wrap gap-1.5 mb-3">' + aovVisibleTabs().map(t => '<button type="button" data-t="' + t[0] + '" class="adm-ov-tab"></button>').join("") + '</div><div id="admOvBody"></div>';
       box.querySelectorAll(".adm-ov-tab").forEach(b => { b.textContent = AOV_TABS.find(t => t[0] === b.dataset.t)[1]; b.onclick = () => { aovTab = b.dataset.t; void renderAdmOv(); }; });
+      if (isModUser()) {
+        const vt = aovVisibleTabs();
+        if (!vt.some(t => t[0] === aovTab)) aovTab = vt.length ? vt[0][0] : "staff";
+        try { const fr = await supabaseClient.rpc("mod_dashboard_flags"); modCanApprove = !!(fr.data && fr.data.can_approve); } catch (e) { modCanApprove = false; }
+      }
       await renderAdmOv();
     }
     async function loadAdminNotifBox() {
@@ -1666,7 +1685,7 @@
         full_name: profile.full_name,
         email: authUser.email.toLowerCase(),
         phone_private: profile.phone_private || "",
-        role: profile.role,
+        role: profile.role, permissions: Array.isArray(profile.permissions) ? profile.permissions : [],
         country: profile.country || "",
         city: profile.city || "",
         region: profile.region || getRegionByCity(profile.city || ""),
