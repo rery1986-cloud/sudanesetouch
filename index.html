@@ -1258,6 +1258,9 @@
         const unreadNotifs = db.notifications.filter(n => n.user_id === user.id && !n.is_read).length;
         const roleLabel = ({ admin: "الإدارة", moderator: "مشرفة", provider: "مقدمة خدمة", merchant: "تاجرة" })[user.role] || "عميلة";
         actions.innerHTML = `
+          <button id="chatInboxBtn" class="relative p-2 rounded-xl bg-[#F3EAE0] hover:bg-[#EFE0C3] transition" title="رسائلي">
+            💬<span id="chatUnreadBadge" class="hidden absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center"></span>
+          </button>
           <button id="notifBtn" class="relative p-2 rounded-xl bg-[#F3EAE0] hover:bg-[#EFE0C3] transition" title="الإشعارات">
             🔔
             ${unreadNotifs ? `<span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center">${unreadNotifs}</span>` : ""}
@@ -1268,6 +1271,8 @@
           <button id="logoutBtn" class="px-3 py-2 rounded-xl border border-[#C98E88] text-[#A96B65] text-xs font-bold hover:bg-[#C98E88] hover:text-white transition">خروج</button>
         `;
         document.getElementById("notifBtn").onclick = showNotificationsModal;
+        document.getElementById("chatInboxBtn").onclick = showChatInbox;
+        refreshChatUnread();
         document.getElementById("goDashBtn").onclick = () => navigate("dashboard");
         document.getElementById("logoutBtn").onclick = async () => {
           if (verifiedAdminUserId && supabaseClient) {
@@ -1815,7 +1820,7 @@
                 ${p.specialties.map(sp => `<span class="px-3 py-1 rounded-xl bg-[#F3EAE0] text-xs font-bold text-[#4A332A]">${sp}</span>`).join("")}
               </div>
               <div class="pt-2 flex flex-wrap gap-3">
-                <button id="msgProviderBtn" data-uid="${p.user_id}" class="px-4 py-2 rounded-xl border border-[#4A332A] text-sm font-bold hover:bg-[#F3EAE0]">💬 مراسلة الخبيرة</button>
+                <button id="msgProviderBtn" data-sbid="${p.supabase_id || ""}" data-uid="${p.user_id}" class="px-4 py-2 rounded-xl border border-[#4A332A] text-sm font-bold hover:bg-[#F3EAE0]">💬 مراسلة الخبيرة</button>
                 <button data-waitlist-prov="${p.id}" class="waitlist-prov-btn px-4 py-2 rounded-xl bg-[#EFE0C3] text-sm font-bold text-[#4A332A] hover:bg-[#E6C98A]">🔔 قائمة الانتظار الذكية</button>
                 <span class="text-xs text-[#735447] self-center">🔒 رقم الهاتف محمي ولا يُعرض للعامة</span>
               </div>
@@ -3311,34 +3316,92 @@
       `);
     }
 
-    function showChatModal(otherUid) {
+    let chatChannel = null;
+    function chatMe() { const u = currentUser(); return u && u.auth_user_id ? u.auth_user_id : null; }
+    function chatTime(t) { try { return new Date(t).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" }); } catch (e) { return ""; } }
+    async function refreshChatUnread() {
+      const me = chatMe(); if (!supabaseClient || !me) return;
+      const r = await supabaseClient.from("messages").select("id", { count: "exact", head: true }).is("read_at", null).neq("sender_id", me);
+      const n = r.count || 0;
+      const el = document.getElementById("chatUnreadBadge");
+      if (el) { el.textContent = n; el.classList.toggle("hidden", !n); }
+      if (!chatChannel) {
+        chatChannel = supabaseClient.channel("msgs-" + me).on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, p => {
+          const m = p.new; if (!m || m.sender_id === me) return;
+          const box = document.getElementById("chatMsgs");
+          if (box && box.dataset.cid === m.conversation_id) { chatAppend(box, m, me); supabaseClient.rpc("mark_conversation_read", { p_conversation_id: m.conversation_id }); }
+          else showToast("💬 رسالة جديدة");
+          refreshChatUnread();
+        }).subscribe();
+      }
+    }
+    function chatAppend(box, m, me) {
+      const mine = m.sender_id === me;
+      const d = document.createElement("div");
+      d.className = "p-2.5 rounded-xl text-xs " + (mine ? "bg-[#EFE0C3] mr-8" : "bg-[#F3EAE0] ml-8");
+      const t = document.createElement("div"); t.style.whiteSpace = "pre-wrap"; t.textContent = m.body;
+      const tm = document.createElement("div"); tm.className = "text-[10px] text-[#735447] mt-1"; tm.textContent = chatTime(m.created_at);
+      d.appendChild(t); d.appendChild(tm); box.appendChild(d); box.scrollTop = box.scrollHeight;
+    }
+    async function openChatWithProvider(providerSbId) {
       const user = currentUser();
-      if (!user) { showToast("سجلي الدخول للتواصل مع الخبيرة", "warn"); return showLoginModal(); }
-      const other = db.users.find(u => u.id === otherUid);
-      const msgs = db.messages.filter(m => (m.sender_id === user.id && m.receiver_id === otherUid) || (m.sender_id === otherUid && m.receiver_id === user.id));
+      if (!user) { showToast("سجّلي الدخول للتواصل مع الخبيرة", "warn"); return showLoginModal(); }
+      if (!supabaseClient || !user.auth_user_id) { showToast("سجّلي الدخول بحسابك الحقيقي للمراسلة", "warn"); return; }
+      if (!providerSbId) { showToast("المراسلة غير متاحة لهذا الحساب التجريبي", "warn"); return; }
+      const r = await supabaseClient.rpc("start_conversation", { p_provider_id: providerSbId });
+      if (r.error || !r.data) { showToast("تعذر فتح المحادثة: " + (r.error ? r.error.message : ""), "error"); return; }
+      const prov = db.providerProfiles.find(x => x.supabase_id === providerSbId);
+      openConversation(r.data, prov ? prov.display_name : "الخبيرة");
+    }
+    async function openConversation(cid, title) {
+      const me = chatMe(); if (!supabaseClient || !me) return;
       openModal(`
-        <h2 class="text-lg font-extrabold text-[#4A332A] mb-3">محادثة مع ${other ? other.full_name : "الخبيرة"}</h2>
-        <div class="space-y-2 max-h-64 overflow-y-auto p-3 rounded-2xl bg-white border mb-3">
-          ${msgs.map(m => `
-            <div class="p-2.5 rounded-xl text-xs ${m.sender_id === user.id ? "bg-[#EFE0C3] mr-8" : "bg-[#F3EAE0] ml-8"}">
-              <div>${m.content}</div>
-              <div class="text-[10px] text-[#735447] mt-1">${m.created_at}</div>
-            </div>
-          `).join("") || `<p class="text-xs text-[#735447] text-center">ابدئي المحادثة الآن</p>`}
-        </div>
+        <h2 class="text-lg font-extrabold text-[#4A332A] mb-1">محادثة مع ${esc(title)}</h2>
+        <p class="text-[11px] text-[#735447] mb-3">اتفقي هنا على الخدمة والسعر والتفاصيل. رقم الهاتف يظهر بعد تأكيد الحجز.</p>
+        <div id="chatMsgs" data-cid="${esc(cid)}" class="space-y-2 max-h-64 overflow-y-auto p-3 rounded-2xl bg-white border mb-3"><p class="text-xs text-[#735447] text-center">جارٍ التحميل...</p></div>
         <form id="chatSendForm" class="flex gap-2">
-          <input name="content" required placeholder="اكتبي رسالتك..." class="flex-1 px-3 py-2 rounded-xl bg-white border text-sm" />
+          <input name="content" required maxlength="2000" autocomplete="off" placeholder="اكتبي رسالتك..." class="flex-1 px-3 py-2 rounded-xl bg-white border text-sm" />
           <button type="submit" class="btn-primary px-4 py-2 rounded-xl text-xs font-bold">إرسال</button>
         </form>
       `);
-      document.getElementById("chatSendForm").onsubmit = e => {
+      const box = document.getElementById("chatMsgs");
+      const r = await supabaseClient.from("messages").select("id, conversation_id, sender_id, body, created_at").eq("conversation_id", cid).order("created_at", { ascending: true }).limit(300);
+      if (r.error) { box.textContent = "تعذر تحميل الرسائل: " + r.error.message; return; }
+      box.innerHTML = "";
+      if (!r.data.length) box.innerHTML = '<p class="text-xs text-[#735447] text-center">ابدئي المحادثة الآن</p>';
+      else r.data.forEach(m => chatAppend(box, m, me));
+      supabaseClient.rpc("mark_conversation_read", { p_conversation_id: cid }).then(refreshChatUnread);
+      document.getElementById("chatSendForm").onsubmit = async e => {
         e.preventDefault();
-        const content = new FormData(e.target).get("content").trim();
-        db.messages.push({ id: Date.now(), sender_id: user.id, receiver_id: otherUid, content, created_at: "الآن" });
-        db.notifications.push({ id: Date.now() + 1, user_id: otherUid, title: "رسالة جديدة", body: `رسالة من ${user.full_name}`, is_read: false });
-        saveDB();
-        showChatModal(otherUid);
+        const inp = e.target.elements.content; const body = inp.value.trim(); if (!body) return;
+        inp.disabled = true;
+        const ins = await supabaseClient.from("messages").insert({ conversation_id: cid, body }).select("id, conversation_id, sender_id, body, created_at").single();
+        inp.disabled = false;
+        if (ins.error) { showToast("تعذر إرسال الرسالة: " + ins.error.message, "error"); return; }
+        if (!box.querySelector(".p-2\\.5")) box.innerHTML = "";
+        chatAppend(box, ins.data, me); inp.value = ""; inp.focus();
       };
+    }
+    async function showChatInbox() {
+      const me = chatMe();
+      if (!currentUser()) return showLoginModal();
+      if (!supabaseClient || !me) { showToast("سجّلي الدخول بحسابك الحقيقي لرؤية الرسائل", "warn"); return; }
+      openModal('<h2 class="text-xl font-extrabold text-[#4A332A] mb-4">رسائلي</h2><div id="chatInboxList" class="space-y-2"><p class="text-sm text-[#735447]">جارٍ التحميل...</p></div>');
+      const r = await supabaseClient.from("conversations").select("id, customer_user_id, provider_user_id, provider_id, last_message_at").order("last_message_at", { ascending: false }).limit(50);
+      const list = document.getElementById("chatInboxList"); if (!list) return;
+      if (r.error) { list.textContent = "تعذر التحميل: " + r.error.message; return; }
+      if (!r.data.length) { list.innerHTML = '<p class="text-sm text-[#735447]">لا توجد محادثات بعد. افتحي صفحة خبيرة واضغطي مراسلة.</p>'; return; }
+      list.innerHTML = "";
+      r.data.forEach(c => {
+        const mineAsCustomer = c.customer_user_id === me;
+        const other = mineAsCustomer ? db.providerProfiles.find(x => x.supabase_id === c.provider_id || x.auth_user_id === c.provider_user_id) : db.users.find(x => x.auth_user_id === c.customer_user_id);
+        const name = other ? (other.display_name || other.full_name) : (mineAsCustomer ? "الخبيرة" : "عميلة");
+        const b = document.createElement("button");
+        b.className = "w-full text-right p-3 rounded-xl bg-white border text-sm hover:bg-[#F3EAE0]";
+        b.textContent = "💬 " + name + " · " + chatTime(c.last_message_at);
+        b.onclick = () => openConversation(c.id, name);
+        list.appendChild(b);
+      });
     }
 
     function openWaitlistModal(providerId) {
@@ -3726,7 +3789,7 @@
       // Provider Detail actions
       document.querySelectorAll(".book-svc-btn").forEach(b => { b.onclick = () => showBookingModal(Number(b.dataset.bookSvc)); });
       const msgBtn = document.getElementById("msgProviderBtn");
-      if (msgBtn) msgBtn.onclick = () => showChatModal(Number(msgBtn.dataset.uid));
+      if (msgBtn) msgBtn.onclick = () => openChatWithProvider(msgBtn.dataset.sbid);
       document.querySelectorAll(".report-btn").forEach(b => { b.onclick = () => showReportModal(b.dataset.reportType, b.dataset.reportId); });
 
       // Client Dashboard actions
