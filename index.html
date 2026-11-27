@@ -1543,7 +1543,7 @@ async function showDisputeDetail(id, box) {
             const localUserId = localUserId0 || local?.user_id || null;
             if (!local) { local = { id: db.providerProfiles.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1, user_id: localUserId }; db.providerProfiles.push(local); }
             const cityName = row.city || local.city || "";
-            Object.assign(local, { subscription_paused: !!row.subscription_paused, supabase_id: row.id, auth_user_id: row.user_id || local.auth_user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: getCountryByCity(cityName), city: cityName, region: getRegionByCity(cityName), district: row.district || "", specialties: Array.isArray(row.service_categories) ? row.service_categories : [], avatar_url: (row.avatar_url && /^https?:/.test(row.avatar_url)) ? row.avatar_url : (local.avatar_url || ASSETS.hero), approval_status: row.verification_status, is_available: row.is_available !== false, avg_rating: Number(row.average_rating || 0), is_demo: false });
+            Object.assign(local, { subscription_paused: !!row.subscription_paused, supabase_id: row.id, auth_user_id: row.user_id || local.auth_user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: getCountryByCity(cityName), city: cityName, region: getRegionByCity(cityName), district: row.district || "", specialties: Array.isArray(row.service_categories) ? row.service_categories : [], avatar_url: (row.avatar_url && /^https?:/.test(row.avatar_url)) ? row.avatar_url : (local.avatar_url || ASSETS.hero), approval_status: row.verification_status, subscription_tier: local.subscription_tier || "free", is_available: row.is_available !== false, avg_rating: Number(row.average_rating || 0), is_demo: false });
           });
           if (Array.isArray(remoteProviders)) {
             const remoteIds = new Set(remoteProviders.map(r => r.id));
@@ -3196,7 +3196,7 @@ async function showDisputeDetail(id, box) {
                 <h1 class="text-2xl font-extrabold text-[#4A332A]">${p.display_name}</h1>
                 ${approvalBadge}
               </div>
-              <p class="text-xs text-[#735447]">📍 ${p.city} — ${p.district} • الباقة: ${p.subscription_tier.toUpperCase()}</p>
+              <p class="text-xs text-[#735447]">📍 ${p.city} — ${p.district} • الباقة: ${String(p.subscription_tier || "free").toUpperCase()}</p>
             </div>
             <div class="grid grid-cols-3 gap-3 text-center">
               <div class="px-4 py-2 rounded-2xl bg-[#F3EAE0]"><div class="text-lg font-extrabold">${p.views_count}</div><div class="text-[11px]">مشاهدة</div></div>
