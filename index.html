@@ -2868,6 +2868,35 @@ async function showDisputeDetail(id, box) {
       };
     }
     document.addEventListener("click", ev => { if (ev.target && ev.target.closest && ev.target.closest("#writePlatformReviewBtn")) void openPlatformReviewModal(); });
+    function showWelcomeSplash() {
+      try {
+        if (localStorage.getItem("lamsa_welcome_seen")) return;
+        for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ""; if (k.indexOf("sb-") === 0 && k.indexOf("auth-token") > -1) return; }
+      } catch (e) { return; }
+      if (document.getElementById("welcomeSplash")) return;
+      const el = document.createElement("div");
+      el.id = "welcomeSplash";
+      el.className = "fixed inset-0 z-[90] flex items-center justify-center p-4 bg-[#4A332A]/90 backdrop-blur-sm";
+      el.innerHTML = '<div class="relative w-full max-w-md max-h-full overflow-y-auto rounded-3xl bg-[#FBF7F2] p-6 text-center shadow-2xl">'
+        + '<button type="button" id="welcomeCloseBtn" aria-label="إغلاق" class="absolute top-3 left-3 w-9 h-9 rounded-full bg-white text-[#4A332A] font-bold">✕</button>'
+        + '<img src="assets/logo.jpg" alt="Sudanese Touch" class="w-40 h-40 mx-auto rounded-3xl object-cover shadow-md mb-4" />'
+        + '<p class="text-xs font-extrabold tracking-[0.25em] text-[#B3746E] mb-1">SUDANESE TOUCH</p>'
+        + '<h1 class="text-3xl font-extrabold text-[#4A332A] mb-3">سودانيز تاتش</h1>'
+        + '<p class="text-lg font-extrabold text-[#6D1A36] mb-3">لأنكِ قوية... وموهبتكِ تستحق أن تُرى.</p>'
+        + '<p class="text-sm text-[#735447] leading-relaxed mb-4">جمعنا نساء السودان حول العالم، في مكان واحد يجمع الجمال، والموهبة، والرزق.</p>'
+        + '<p class="text-sm font-bold text-[#4A332A] border-t border-[#C89D54]/40 pt-3 mb-4">من نساء السودان... إلى كل امرأة.</p>'
+        + '<button type="button" id="welcomeStartBtn" class="btn-primary w-full py-3 rounded-xl font-extrabold">ابدئي</button>'
+        + '<p class="text-[10px] text-[#735447] mt-3">اسحبي للأعلى للدخول</p></div>';
+      document.body.appendChild(el);
+      const done = () => { try { localStorage.setItem("lamsa_welcome_seen", "1"); } catch (e) {} el.remove(); };
+      document.getElementById("welcomeStartBtn").onclick = done;
+      document.getElementById("welcomeCloseBtn").onclick = done;
+      let y0 = null;
+      el.addEventListener("touchstart", ev => { y0 = ev.touches[0].clientY; }, { passive: true });
+      el.addEventListener("touchend", ev => { if (y0 !== null && y0 - ev.changedTouches[0].clientY > 60) done(); y0 = null; }, { passive: true });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showWelcomeSplash); else showWelcomeSplash();
+
     function renderAccountSummary(user) {
       const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "الإدارة" };
       const roleName = roleNames[user.role] || user.role || "مستخدم";
