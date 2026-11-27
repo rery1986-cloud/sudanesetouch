@@ -971,7 +971,7 @@
     const aovD = s => s ? esc(String(s).slice(0, 10)) : "-";
     const aovN = v => Number(v || 0).toLocaleString("en-US");
     const aovLtr = v => '<span dir="ltr">' + esc(v || "-") + '</span>';
-    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"], ["discounts", "🎁 الخصومات"]];
+    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"], ["discounts", "🎁 الخصومات"], ["reviews", "⭐ التقييمات"]];
     const AOV_COLS = {
       clients: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحجوزات", x => aovN(x.bookings_as_client)], ["التسجيل", x => aovD(x.created_at)], ["آخر دخول", x => aovD(x.last_sign_in_at || x.last_login_at)], ["الحالة", x => aovSt(x.account_status)]],
       providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التقييم", x => aovN(x.rating)], ["الحجوزات", x => aovN(x.bookings_as_provider)], ["التسجيل", x => aovD(x.created_at)]],
@@ -979,10 +979,11 @@
       bookings: [["رقم", x => "#" + esc(x.booking_number)], ["العميلة", x => esc(x.client_name || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الخدمة", x => esc(x.service || "-")], ["الموعد", x => aovD(x.scheduled_at)], ["المبلغ", x => aovN(x.total_amount) + " " + esc(x.currency || "")], ["الحالة", x => aovSt(x.status)]],
       revenue: [["الحجز", x => "#" + esc(x.booking_number || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الإجمالي", x => aovN(x.gross_amount) + " " + esc(x.currency || "")], ["عمولة المنصة", x => aovN(x.platform_commission)], ["الصافي", x => aovN(x.provider_net_amount)], ["الدفع", x => aovSt(x.payment_status)], ["الطريقة", x => esc(x.payment_method || "-")], ["التاريخ", x => aovD(x.paid_at || x.created_at)]],
       ads: [["العنوان", x => esc(x.title || "-")], ["المعلن", x => esc(x.advertiser_name || "-")], ["الموضع", x => esc(x.placement || "-")], ["الميزانية", x => aovN(x.budget)], ["المشاهدات", x => aovN(x.impressions)], ["النقرات", x => aovN(x.clicks)], ["الحالة", x => aovSt(x.status)], ["التاريخ", x => aovD(x.created_at)]],
+      reviews: [["التاريخ", x => aovD(x.created_at)], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["العميلة", x => esc(x.client_name || "-")], ["التقييم", x => aovN(x.rating) + " ★"], ["التعليق", x => esc(x.comment || "")], ["الحالة", x => x.status === "hidden" ? "مخفي" : "منشور"], ["إجراء", x => '<button type="button" class="adm-rev-toggle px-2 py-1 rounded bg-[#EFE0C3] font-bold" data-id="' + esc(x.id) + '" data-s="' + (x.status === "hidden" ? "published" : "hidden") + '">' + (x.status === "hidden" ? "إظهار" : "إخفاء") + '</button>']],
       discounts: [["الكود", x => aovLtr(x.code)], ["النسبة", x => aovN(x.percent) + "%"], ["العميلة", x => esc(x.client_name || x.client_email || "-")], ["ينتهي", x => aovD(x.valid_to)], ["استُخدم", x => x.used_at ? aovD(x.used_at) : "لا"], ["الحالة", x => x.is_active ? "فعّال" : "معطّل"], ["إجراء", x => '<button type="button" class="adm-disc-toggle px-2 py-1 rounded bg-[#EFE0C3] font-bold" data-id="' + esc(x.id) + '" data-a="' + (x.is_active ? "0" : "1") + '">' + (x.is_active ? "تعطيل" : "تفعيل") + '</button>']],
       bazaars: [["الاسم", x => esc(x.name || "-")], ["المنظِّمة", x => esc(x.organizer_name || "-")], ["المكان", x => esc((x.venue || "-") + " / " + (x.city || "-"))], ["من", x => aovD(x.starts_at)], ["إلى", x => aovD(x.ends_at)], ["الحالة", x => aovSt(x.status)]]
     };
-    const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}], discounts: ["admin_list_discount_codes", {}] };
+    const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}], discounts: ["admin_list_discount_codes", {}], reviews: ["admin_list_reviews", {}] };
     let aovTab = "summary", aovRows = [];
     function aovTable() {
       const q = ((document.getElementById("admOvSearch") || {}).value || "").trim().toLowerCase();
@@ -1029,6 +1030,14 @@
       body.innerHTML = (aovTab === "discounts" ? '<div id="admDiscSettings" class="p-3 rounded-2xl bg-white border border-[#E8DACA] mb-3 text-[11px]">جاري التحميل...</div>' : "") + '<input id="admOvSearch" class="w-full px-3 py-2 rounded-xl bg-white border text-xs mb-2" placeholder="بحث بالاسم أو البريد أو الجوال أو المدينة..." /><div id="admOvTable"></div>';
       document.getElementById("admOvSearch").oninput = aovTable;
       aovTable();
+      if (aovTab === "reviews") {
+        body.onclick = async ev => {
+          const b = ev.target.closest(".adm-rev-toggle"); if (!b) return;
+          const rr = await supabaseClient.rpc("admin_set_review_status", { p_id: b.dataset.id, p_status: b.dataset.s, p_reason: b.dataset.s === "hidden" ? "admin" : null });
+          if (rr.error) return showToast("تعذر التحديث: " + rr.error.message, "error");
+          void renderAdmOv();
+        };
+      }
       if (aovTab === "discounts") {
         void loadDiscSettings();
         body.onclick = async ev => {
@@ -1099,6 +1108,27 @@
     function remoteUiId(rawId) { const n = Number(rawId); return Number.isFinite(n) ? CORE_REMOTE_ID_OFFSET + n : rawId; }
     async function sha256Hex(value) { const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join(""); }
     function createSecureInviteToken() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join(""); }
+    async function syncServerReviews() {
+      if (!supabaseClient) return;
+      const { data, error } = await supabaseClient.from("reviews").select("id, provider_id, rating, quality, punctuality, cleanliness, attitude, photo_accuracy, comment, reviewer_name, created_at").order("created_at", { ascending: false }).limit(500);
+      if (error) { console.warn("reviews read unavailable:", error.message); return; }
+      const keep = new Set((data || []).map(r => r.id));
+      const touched = new Set();
+      db.reviews.filter(r => r.server_id && !keep.has(r.server_id)).forEach(r => touched.add(r.provider_id));
+      db.reviews = db.reviews.filter(r => !r.server_id || keep.has(r.server_id));
+      (data || []).forEach(row => {
+        const prov = db.providerProfiles.find(p => p.supabase_id === row.provider_id); if (!prov) return;
+        let local = db.reviews.find(r => r.server_id === row.id);
+        if (!local) { local = { id: "sv-" + row.id, server_id: row.id }; db.reviews.push(local); }
+        Object.assign(local, { provider_id: prov.id, rating: Number(row.rating), quality: row.quality, punctuality: row.punctuality, cleanliness: row.cleanliness, attitude: row.attitude, photo_accuracy: row.photo_accuracy, comment: row.comment, reviewer_name: row.reviewer_name, is_hidden: false, created_at: String(row.created_at).slice(0, 10) });
+        touched.add(prov.id);
+      });
+      touched.forEach(id => {
+        recalcProviderRating(id);
+        const p = db.providerProfiles.find(x => x.id === id);
+        if (p && !p.is_demo) p.reviews_count = db.reviews.filter(r => r.provider_id === id && !r.is_hidden).length;
+      });
+    }
     async function syncCoreDataFromSupabase() {
       if (!supabaseClient) return false;
       if (coreSyncInFlight) return coreSyncInFlight;
@@ -1157,6 +1187,7 @@
             });
           }
           try { await syncServerAds(); } catch (e) { console.warn("ads sync failed", e); }
+          try { await syncServerReviews(); } catch (e) { console.warn("reviews sync failed", e); }
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
           return true;
         } catch (error) { console.warn("Supabase core sync unavailable:", error); return false; }
@@ -2253,7 +2284,7 @@
                 return `
                   <div class="glass-card p-4 rounded-2xl space-y-2">
                     <div class="flex items-center justify-between">
-                      <span class="font-bold text-sm">${cl ? cl.full_name : "عميلة لمسة"}</span>
+                      <span class="font-bold text-sm">${cl ? cl.full_name : (r.reviewer_name || "عميلة لمسة")}</span>
                       <span class="text-amber-500 text-sm font-bold">${r.rating} ${"★".repeat(stars)}${"☆".repeat(5 - stars)}</span>
                     </div>
                     <p class="text-sm text-[#4A332A] font-medium">«${r.comment}»</p>
@@ -3661,13 +3692,19 @@
           <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">نشر التقييم</button>
         </form>
       `);
-      document.getElementById("reviewForm").onsubmit = e => {
+      document.getElementById("reviewForm").onsubmit = async e => {
         e.preventDefault();
         const fd = new FormData(e.target);
         const q = Number(fd.get("quality")), pu = Number(fd.get("punctuality")), cl = Number(fd.get("cleanliness")), at = Number(fd.get("attitude")), pa = Number(fd.get("photo_accuracy"));
         const avg = Number(((q + pu + cl + at + pa) / 5).toFixed(1));
+        let serverReviewId = null;
+        if (supabaseClient && bk.supabase_id) {
+          const rs = await supabaseClient.rpc("submit_review", { p_booking_id: bk.supabase_id, p_quality: q, p_punctuality: pu, p_cleanliness: cl, p_attitude: at, p_photo_accuracy: pa, p_comment: String(fd.get("comment") || "").trim() });
+          if (rs.error) return showToast("تعذر نشر التقييم: " + rs.error.message, "error");
+          serverReviewId = rs.data && rs.data.id;
+        }
         db.reviews.push({
-          id: Date.now(), booking_id: bookingId, client_id: user.id, provider_id: bk.provider_id,
+          id: Date.now(), server_id: serverReviewId || null, booking_id: bookingId, client_id: user.id, provider_id: bk.provider_id,
           rating: avg, quality: q, punctuality: pu, cleanliness: cl, attitude: at, photo_accuracy: pa,
           comment: fd.get("comment").trim(), is_hidden: false, created_at: new Date().toISOString().slice(0, 10)
         });
