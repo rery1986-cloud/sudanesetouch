@@ -396,9 +396,9 @@
     }
 
     const SUBSCRIPTION_PLANS = {
-      free: { id: "free", name: "الباقة المجانية", price: 0, commission: 0.12, badge: "مجانية", features: ["ملف مهني أساسي", "حتى 5 خدمات", "عمولة منصة 12% على المكتمل"] },
-      gold: { id: "gold", name: "الباقة الذهبية", price: 149, commission: 0.08, badge: "ذهبية ✨", features: ["خدمات غير محدودة", "أولوية في نتائج البحث", "عمولة مخفّضة 8%", "تحليلات الطلب والأحياء"] },
-      diamond: { id: "diamond", name: "الباقة الماسية", price: 299, commission: 0.05, badge: "ماسية 💎", features: ["إعلان مميز في المقدمة", "أقل عمولة 5%", "قائمة انتظار ذكية تلقائية", "شارة توثيق ماسية"] }
+      free: { id: "free", name: "الباقة المجانية", price: 0, commission: 0.12, badge: "مجانية", features: ["ملف مهني أساسي", "حتى 5 خدمات", "بدون أي عمولة على الحجوزات"] },
+      gold: { id: "gold", name: "الباقة الذهبية", price: 149, commission: 0.08, badge: "ذهبية ✨", features: ["خدمات غير محدودة", "أولوية في نتائج البحث", "بدون أي عمولة على الحجوزات", "تحليلات الطلب والأحياء"] },
+      diamond: { id: "diamond", name: "الباقة الماسية", price: 299, commission: 0.05, badge: "ماسية 💎", features: ["إعلان مميز في المقدمة", "بدون أي عمولة على الحجوزات", "قائمة انتظار ذكية تلقائية", "شارة توثيق ماسية"] }
     };
 
     const BOOKING_STATUS_MAP = {
@@ -683,7 +683,7 @@
           plans: [
             { tier: "free", name: "الباقة الأساسية", price: 0, perks: "حتى 5 خدمات • ظهور قياسي" },
             { tier: "pro", name: "باقة لمسة برو", price: 149, perks: "خدمات غير محدودة • أولوية بالبحث" },
-            { tier: "vip", name: "باقة النخبة VIP", price: 299, perks: "ترويج مدفوع • عمولة 8% • شارة ذهبية" }
+            { tier: "vip", name: "باقة النخبة VIP", price: 299, perks: "ترويج مدفوع • شارة ذهبية" }
           ]
         }
       };
@@ -3274,7 +3274,7 @@ async function showDisputeDetail(id, box) {
           ${(() => {
             const isTrial = isTrialActiveFor(user);
             const plan = SUBSCRIPTION_PLANS[p.subscription_tier] || SUBSCRIPTION_PLANS.free;
-            const effectiveCommission = isTrial ? 0 : plan.commission;
+            const effectiveCommission = 0;
             const completedBks = myBookings.filter(b => b.status === "completed");
             const grossTotal = completedBks.reduce((sum, b) => sum + (b.total_price_sar || 0), 0);
             const commissionAmt = Math.round(grossTotal * effectiveCommission);
@@ -3284,12 +3284,10 @@ async function showDisputeDetail(id, box) {
               <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="glass-card p-5 rounded-3xl space-y-3">
                   <div class="flex items-center justify-between">
-                    <h2 class="font-extrabold text-[#4A332A]">💳 العمولات وصافي الأرباح</h2>
-                    <span class="text-xs px-2.5 py-0.5 rounded-full ${isTrial ? "bg-emerald-100 text-emerald-800" : "bg-[#EFE0C3]"} font-bold">${isTrial ? "🎁 عمولة 0% (فترة تجريبية)" : "عمولة " + (plan.commission * 100).toFixed(0) + "%"}</span>
+                    <h2 class="font-extrabold text-[#4A332A]">💰 أرباحك</h2>
                   </div>
-                  <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div class="grid grid-cols-2 gap-2 text-center text-xs">
                     <div class="p-2.5 rounded-2xl bg-[#FBF7F2]"><div class="font-extrabold text-sm">${grossTotal}</div><div class="text-[#735447]">الإجمالي (ر.س)</div></div>
-                    <div class="p-2.5 rounded-2xl bg-rose-50"><div class="font-extrabold text-sm text-rose-700">-${commissionAmt}</div><div class="text-[#735447]">عمولة لمسة</div></div>
                     <div class="p-2.5 rounded-2xl bg-emerald-50"><div class="font-extrabold text-sm text-emerald-700">${netEarnings}</div><div class="text-[#735447]">صافي ربحك</div></div>
                   </div>
                   <div class="pt-1 flex items-center justify-between border-t border-[#E8DACA]">
@@ -3467,7 +3465,6 @@ async function showDisputeDetail(id, box) {
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-[#F3EAE0]">
-                    <tr><td class="py-2 font-bold">عمولة الحجوزات</td><td>نسبة ${db.monetization.commission_rate}% من كل حجز مكتمل</td><td class="text-emerald-700 font-bold">تُحتسب تلقائياً</td></tr>
                     <tr><td class="py-2 font-bold">اشتراك شهري</td><td>باقات اختيارية لمقدمات الخدمة</td><td>
                       <select id="provTierSelect" class="px-2 py-1 rounded-lg bg-[#FBF7F2] border text-xs font-bold">
                         ${db.monetization.plans.map(pl => `<option value="${pl.tier}" ${p.subscription_tier === pl.tier ? "selected" : ""}>${pl.name} (${pl.price} ر.س)</option>`).join("")}
@@ -4886,7 +4883,7 @@ async function showDisputeDetail(id, box) {
           <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 font-bold">
               <span>🎁</span>
-              <span>فترة تجريبية مجانية بالكامل لمدة ${tc.months} أشهر ${trialEnd ? "(حتى " + trialEnd + ")" : "من تاريخ تسجيلك"} — عمولة 0% على الحجوزات + الباقة الماسية والإعلانات المميزة مجاناً!</span>
+              <span>فترة تجريبية مجانية بالكامل لمدة ${tc.months} أشهر ${trialEnd ? "(حتى " + trialEnd + ")" : "من تاريخ تسجيلك"} — الباقة الماسية والإعلانات المميزة مجاناً!</span>
             </div>
             <button data-nav="explore" class="nav-btn px-3 py-1 rounded-full bg-[#EFE0C3] text-[#4A332A] text-xs font-extrabold hover:bg-white transition">ابدئي التجربة مجاناً</button>
           </div>
