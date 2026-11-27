@@ -156,6 +156,7 @@
 
   <!-- Main View Container -->
   <div id="trialBanner"></div>
+  <div id="subBanner"></div>
   <div id="visualAdStrip"></div>
   <main id="appMain" class="flex-1"></main>
 
@@ -971,7 +972,7 @@
     const aovD = s => s ? esc(String(s).slice(0, 10)) : "-";
     const aovN = v => Number(v || 0).toLocaleString("en-US");
     const aovLtr = v => '<span dir="ltr">' + esc(v || "-") + '</span>';
-    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"], ["discounts", "🎁 الخصومات"], ["reviews", "⭐ التقييمات"]];
+    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"], ["discounts", "🎁 الخصومات"], ["reviews", "⭐ التقييمات"], ["subs", "💳 الاشتراكات"]];
     const AOV_COLS = {
       clients: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحجوزات", x => aovN(x.bookings_as_client)], ["التسجيل", x => aovD(x.created_at)], ["آخر دخول", x => aovD(x.last_sign_in_at || x.last_login_at)], ["الحالة", x => aovSt(x.account_status)]],
       providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التقييم", x => aovN(x.rating)], ["الحجوزات", x => aovN(x.bookings_as_provider)], ["التسجيل", x => aovD(x.created_at)]],
@@ -1023,6 +1024,7 @@
         if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
         body.innerHTML = aovSummary(r.data || {}); return;
       }
+      if (aovTab === "subs") { await renderAdmSubs(body); return; }
       const spec = AOV_RPC[aovTab];
       const r = await supabaseClient.rpc(spec[0], spec[1]);
       if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
@@ -1108,6 +1110,154 @@
     function remoteUiId(rawId) { const n = Number(rawId); return Number.isFinite(n) ? CORE_REMOTE_ID_OFFSET + n : rawId; }
     async function sha256Hex(value) { const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join(""); }
     function createSecureInviteToken() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join(""); }
+    let mySub = null, subBusy = false;
+    function subSaving(plans, p) {
+      const m = plans.find(x => x.audience === p.audience && x.code === "monthly");
+      if (!m || Number(p.months) <= 1) return "";
+      const save = Math.round((1 - Number(p.price) / (Number(m.price) * Number(p.months))) * 100);
+      return save > 0 ? "وفّري " + save + "%" : "";
+    }
+    function renderPackageCards(plans) {
+      return '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">' + plans.map(p => {
+        const save = subSaving(plans, p);
+        return '<div class="relative p-5 rounded-3xl bg-white border-2 flex flex-col ' + (p.badge ? "border-[#C89D54] shadow-lg" : "border-[#E8DACA]") + '">'
+          + (p.badge ? '<span class="absolute -top-3 right-4 px-3 py-1 rounded-full bg-[#6D1A36] text-[#EFE0C3] text-[11px] font-extrabold">' + esc(p.badge) + '</span>' : "")
+          + '<h3 class="text-lg font-extrabold text-[#4A332A]">' + esc(p.name_ar) + '</h3>'
+          + '<div class="mt-2"><span class="text-3xl font-extrabold text-[#6D1A36]">' + esc(String(Number(p.price))) + '</span> <span class="text-sm">' + esc(p.currency) + '</span></div>'
+          + '<p class="text-[11px] text-[#735447]">≈ ' + Math.round(Number(p.price) / Number(p.months)) + " " + esc(p.currency) + " في الشهر" + (save ? ' • <b class="text-emerald-700">' + save + "</b>" : "") + "</p>"
+          + '<ul class="mt-3 space-y-1.5 text-xs text-[#4A332A] flex-1">' + (p.features || []).map(f => "<li>✓ " + esc(f) + "</li>").join("") + "</ul>"
+          + '<button type="button" class="sub-choose btn-primary mt-4 py-2.5 rounded-xl text-sm font-extrabold" data-plan="' + esc(p.id) + '">اشتركي الآن</button></div>';
+      }).join("") + "</div>";
+    }
+    function renderSubPanel(box, data) {
+      const plans = data.plans || [];
+      box.innerHTML = plans.length ? renderPackageCards(plans) : '<p class="text-sm">لا توجد باقات متاحة حالياً.</p>';
+      box.querySelectorAll(".sub-choose").forEach(b => { b.onclick = () => renderSubPay(box, data, b.dataset.plan); });
+    }
+    function renderSubPay(box, data, planId) {
+      const p = (data.plans || []).find(x => x.id === planId); if (!p) return;
+      const bk = data.bank || {};
+      box.innerHTML = '<button type="button" id="subBackBtn" class="text-xs font-bold text-[#735447] mb-3">→ رجوع للباقات</button>'
+        + '<div class="p-4 rounded-2xl bg-white border border-[#E8DACA] space-y-3 text-sm">'
+        + '<h3 class="text-lg font-extrabold text-[#4A332A]">' + esc(p.name_ar) + " — " + esc(String(Number(p.price))) + " " + esc(p.currency) + "</h3>"
+        + '<div class="p-3 rounded-xl bg-[#FFF8E7] border border-[#C89D54]/40 text-xs space-y-1"><strong>حوّلي المبلغ إلى الحساب البنكي التالي:</strong>'
+        + "<div>البنك: " + esc(bk.name || "-") + "</div><div>اسم صاحب الحساب: " + esc(bk.holder || "-") + '</div><div dir="ltr" class="text-right">IBAN / رقم الحساب: ' + esc(bk.iban || "-") + "</div>"
+        + (bk.note ? "<div>" + esc(bk.note) + "</div>" : "") + "</div>"
+        + '<label class="block text-xs font-bold">صورة أو ملف إيصال التحويل (JPG أو PNG أو PDF، حتى 5 ميغابايت)<input id="subReceipt" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" class="block mt-1 text-xs"></label>'
+        + '<textarea id="subNote" rows="2" maxlength="400" placeholder="ملاحظة (اختياري)" class="w-full px-3 py-2 rounded-xl bg-white border text-sm"></textarea>'
+        + '<button type="button" id="subSend" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">إرسال الإيصال للاعتماد</button>'
+        + '<p class="text-[11px] text-[#735447]">تُفعَّل باقتك بعد أن تراجع الإدارة الإيصال وتعتمده.</p></div>';
+      document.getElementById("subBackBtn").onclick = () => renderSubPanel(box, data);
+      document.getElementById("subSend").onclick = async () => {
+        const f = document.getElementById("subReceipt").files[0];
+        if (!f) return showToast("اختاري ملف الإيصال أولاً", "error");
+        if (!["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(f.type)) return showToast("الصيغ المسموحة: JPG أو PNG أو PDF", "error");
+        if (f.size > 5 * 1024 * 1024) return showToast("حجم الملف أكبر من 5 ميغابايت", "error");
+        const btn = document.getElementById("subSend"); btn.disabled = true; btn.textContent = "جاري الإرسال...";
+        const au = await supabaseClient.auth.getUser();
+        const uid = au.data && au.data.user && au.data.user.id;
+        if (!uid) { btn.disabled = false; btn.textContent = "إرسال الإيصال للاعتماد"; return showToast("سجّلي الدخول أولاً", "error"); }
+        const ext = f.type === "application/pdf" ? "pdf" : (f.type === "image/png" ? "png" : (f.type === "image/webp" ? "webp" : "jpg"));
+        const path = uid + "/" + Date.now() + "-receipt." + ext;
+        const up = await supabaseClient.storage.from("receipts").upload(path, f, { contentType: f.type });
+        if (up.error) { btn.disabled = false; btn.textContent = "إرسال الإيصال للاعتماد"; return showToast("تعذر رفع الإيصال: " + up.error.message, "error"); }
+        const rs = await supabaseClient.rpc("submit_subscription_payment", { p_plan_id: planId, p_receipt_path: path, p_note: document.getElementById("subNote").value || null });
+        if (rs.error) { btn.disabled = false; btn.textContent = "إرسال الإيصال للاعتماد"; return showToast("تعذر إرسال الدفعة: " + rs.error.message, "error"); }
+        box.innerHTML = '<div class="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-sm font-bold text-emerald-800">✓ تم استلام الإيصال. ستُفعَّل باقتك بعد اعتماد الإدارة.</div>';
+        void loadSubscriptionState();
+      };
+    }
+    async function openSubscribeModal() {
+      const r = await supabaseClient.rpc("get_subscription_plans");
+      if (r.error) return showToast("تعذر تحميل الباقات: " + r.error.message, "error");
+      openModal('<h2 class="text-xl font-extrabold text-[#4A332A] mb-1">باقات الاشتراك</h2><p class="text-xs text-[#735447] mb-2">اختاري الباقة المناسبة، وحوّلي المبلغ وارفعي الإيصال.</p><div id="subPanel"></div>');
+      renderSubPanel(document.getElementById("subPanel"), r.data || {});
+    }
+    function hidePausedOverlay() { const o = document.getElementById("pausedOverlay"); if (o) o.remove(); }
+    async function showPausedOverlay() {
+      if (document.getElementById("pausedOverlay")) return;
+      const r = await supabaseClient.rpc("get_subscription_plans");
+      const o = document.createElement("div");
+      o.id = "pausedOverlay"; o.className = "fixed inset-0 z-40 overflow-y-auto bg-[#FBF7F2] p-4";
+      o.innerHTML = '<div class="max-w-5xl mx-auto py-8 space-y-4"><div class="text-center space-y-2"><div class="text-4xl">⏸️</div><h1 class="text-2xl font-extrabold text-[#4A332A]">حسابك متوقف، اشتركي</h1><p class="text-sm text-[#735447]">انتهت الفترة التجريبية. اختاري باقة لإعادة تشغيل حسابك وظهورك للعميلات.</p>'
+        + (mySub && mySub.pending_payment ? '<p class="text-sm font-bold text-emerald-800">لديك إيصال قيد مراجعة الإدارة.</p>' : "") + '</div><div id="pausedPanel"></div><div class="text-center"><button type="button" id="pausedLogout" class="px-4 py-2 rounded-xl border border-[#C98E88] text-[#A96B65] text-xs font-bold">تسجيل الخروج</button></div></div>';
+      document.body.appendChild(o);
+      if (r.error) document.getElementById("pausedPanel").textContent = "تعذر تحميل الباقات: " + r.error.message; else renderSubPanel(document.getElementById("pausedPanel"), r.data || {});
+      document.getElementById("pausedLogout").onclick = async () => {
+        try { await supabaseClient.auth.signOut(); } catch (e) {}
+        db.currentUserId = null; saveDB(); hidePausedOverlay(); navigate("home");
+      };
+    }
+    async function loadSubscriptionState() {
+      if (!supabaseClient || subBusy) return;
+      subBusy = true;
+      try {
+        const bar = document.getElementById("subBanner");
+        const me = currentUser();
+        if (!bar || !me || !me.auth_user_id || !["provider", "merchant"].includes(me.role)) { if (bar) bar.innerHTML = ""; hidePausedOverlay(); return; }
+        try { await supabaseClient.rpc("sync_subscription_state"); } catch (e) {}
+        const r = await supabaseClient.rpc("my_subscription_status");
+        mySub = r.data || null;
+        if (!mySub || !mySub.enabled) { bar.innerHTML = ""; hidePausedOverlay(); return; }
+        if (mySub.status === "paused") { bar.innerHTML = ""; await showPausedOverlay(); return; }
+        hidePausedOverlay();
+        const days = Number(mySub.days_left || 0);
+        if (days > 7) { bar.innerHTML = ""; return; }
+        const endIso = String(mySub.status === "active" ? mySub.sub_ends_at : mySub.trial_ends_at).slice(0, 10);
+        const bucket = days <= 1 ? 1 : (days <= 3 ? 3 : 7);
+        const key = "sub-" + bucket + "-" + endIso;
+        const msg = mySub.status === "active" ? "فاضلك " + days + " أيام وينتهي اشتراكك، جدّدي" : "فاضلك " + days + " أيام وبيتوقف حسابك، اشتركي";
+        if (!db.notifications.some(n => n.user_id === me.id && n.sub_key === key)) {
+          db.notifications.push({ id: Date.now(), user_id: me.id, title: "تنبيه الاشتراك", body: msg, is_read: false, sub_key: key });
+          saveDB(); renderHeader();
+        }
+        bar.innerHTML = '<div class="bg-[#FFF3D6] border-b border-[#C89D54]/50 text-[#4A332A] text-xs sm:text-sm font-bold px-4 py-2 flex flex-wrap items-center justify-center gap-3"><span>⏳ ' + esc(msg) + '</span><button type="button" id="subBannerBtn" class="px-3 py-1 rounded-lg bg-[#6D1A36] text-[#EFE0C3] font-extrabold">عرض الباقات</button></div>';
+        document.getElementById("subBannerBtn").onclick = openSubscribeModal;
+      } finally { subBusy = false; }
+    }
+    async function renderAdmSubs(body) {
+      const [s, pl, py] = await Promise.all([supabaseClient.rpc("admin_get_subscription_settings"), supabaseClient.rpc("get_subscription_plans"), supabaseClient.rpc("admin_list_subscription_payments")]);
+      if (s.error) { body.textContent = "تعذر التحميل: " + s.error.message; return; }
+      const st = s.data || {}, plans = (pl.data && pl.data.plans) || [], pays = py.data || [];
+      const inp = (id, v, ph, w) => '<input id="' + id + '" value="' + esc(v == null ? "" : String(v)) + '" placeholder="' + ph + '" class="px-2 py-1 rounded border ' + (w || "") + '">';
+      body.innerHTML = '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA] text-[11px] space-y-2 mb-3"><strong class="text-sm">⚙️ إعدادات الاشتراكات والدفع</strong>'
+        + '<label class="flex items-center gap-2 font-bold"><input id="ssEnabled" type="checkbox" ' + (st.subscriptions_enabled ? "checked" : "") + '> تفعيل الاشتراكات (بعد انتهاء التجربة تتوقف الحسابات غير المشتركة)</label>'
+        + '<div class="flex flex-wrap gap-2 items-center"><label>أشهر التجربة ' + inp("ssTrial", st.trial_months, "3", "w-14") + "</label>" + inp("ssBank", st.bank_name, "اسم البنك") + inp("ssHolder", st.bank_holder, "اسم صاحب الحساب") + inp("ssIban", st.bank_iban, "IBAN / رقم الحساب", "w-56") + inp("ssNote", st.bank_note, "ملاحظة تظهر مع بيانات التحويل", "w-64") + "</div>"
+        + '<div class="flex flex-wrap gap-3 items-center"><label class="flex items-center gap-1"><input id="ssCommOn" type="checkbox" ' + (st.commission_enabled ? "checked" : "") + '> تفعيل العمولة (للتسجيل فقط حالياً)</label><label>نسبة العمولة % ' + inp("ssComm", st.commission_percent, "0", "w-14") + '</label><button type="button" id="ssSave" class="px-3 py-1 rounded-lg bg-[#4A332A] text-white font-bold">حفظ</button></div></div>'
+        + '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA] text-[11px] mb-3"><strong class="text-sm">📦 الباقات (الأسعار والمزايا قابلة للتعديل)</strong>'
+        + plans.map(p => '<div class="py-2 border-t border-[#E8DACA] flex flex-wrap gap-2 items-start" data-plan-row="' + esc(p.id) + '"><span class="font-bold w-40">' + (p.audience === "provider" ? "مقدمات الخدمة" : "التاجرات") + " — " + esc(p.name_ar) + "</span>"
+          + '<label>السعر <input class="pl-price w-20 px-2 py-1 rounded border" value="' + esc(String(Number(p.price))) + '"> ' + esc(p.currency) + '</label><label>الشارة <input class="pl-badge w-28 px-2 py-1 rounded border" value="' + esc(p.badge || "") + '"></label>'
+          + '<label class="flex items-center gap-1"><input type="checkbox" class="pl-active" ' + (p.is_active ? "checked" : "") + '> فعّالة</label>'
+          + '<textarea class="pl-features w-full sm:w-80 px-2 py-1 rounded border" rows="4" placeholder="ميزة في كل سطر">' + esc((p.features || []).join("\n")) + '</textarea><button type="button" class="pl-save px-3 py-1 rounded-lg bg-[#EFE0C3] font-bold">حفظ الباقة</button></div>').join("") + "</div>"
+        + '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA] text-[11px]"><strong class="text-sm">🧾 إيصالات الدفع (' + pays.filter(x => x.status === "pending").length + " بانتظار المراجعة)</strong>"
+        + (pays.map(x => '<div class="py-2 border-t border-[#E8DACA] flex flex-wrap items-center justify-between gap-2"><span>' + esc(x.user_name || x.user_email || "-") + " • " + esc(x.plan_name || "") + " • " + esc(String(Number(x.amount))) + " " + esc(x.currency) + " • " + esc(String(x.created_at).slice(0, 10)) + " • " + (x.status === "pending" ? "بانتظار المراجعة" : (x.status === "approved" ? "معتمد" : "مرفوض")) + "</span><span class=\"flex gap-1.5\"><button type=\"button\" class=\"sub-receipt px-2 py-1 rounded bg-[#EFE0C3] font-bold\" data-path=\"" + esc(x.receipt_path) + "\">عرض الإيصال</button>"
+          + (x.status === "pending" ? '<button type="button" class="sub-pay px-2 py-1 rounded bg-emerald-700 text-white font-bold" data-id="' + esc(x.id) + '" data-ok="1">اعتماد</button><button type="button" class="sub-pay px-2 py-1 rounded bg-rose-700 text-white font-bold" data-id="' + esc(x.id) + '" data-ok="0">رفض</button>' : "") + "</span></div>").join("") || '<p class="mt-2">لا توجد إيصالات بعد.</p>') + "</div>";
+      body.onclick = async ev => {
+        const t = ev.target;
+        if (t.id === "ssSave") {
+          const turningOn = document.getElementById("ssEnabled").checked && !st.subscriptions_enabled;
+          if (turningOn && !confirm("تفعيل الاشتراكات سيوقف الحسابات التي انتهت تجربتها وليس لديها اشتراك. متابعة؟")) return;
+          const rr = await supabaseClient.rpc("admin_set_subscription_settings", { p_enabled: document.getElementById("ssEnabled").checked, p_trial_months: Number(document.getElementById("ssTrial").value), p_bank_name: document.getElementById("ssBank").value, p_bank_holder: document.getElementById("ssHolder").value, p_bank_iban: document.getElementById("ssIban").value, p_bank_note: document.getElementById("ssNote").value, p_commission_enabled: document.getElementById("ssCommOn").checked, p_commission_percent: Number(document.getElementById("ssComm").value || 0) });
+          if (rr.error) return showToast("تعذر الحفظ: " + rr.error.message, "error");
+          showToast("تم حفظ الإعدادات"); void renderAdmOv();
+        } else if (t.classList.contains("pl-save")) {
+          const row = t.closest("[data-plan-row]");
+          const rr = await supabaseClient.rpc("admin_update_plan", { p_id: row.dataset.planRow, p_price: Number(row.querySelector(".pl-price").value), p_features: row.querySelector(".pl-features").value.split("\n").map(x => x.trim()).filter(Boolean), p_is_active: row.querySelector(".pl-active").checked, p_badge: row.querySelector(".pl-badge").value });
+          if (rr.error) return showToast("تعذر الحفظ: " + rr.error.message, "error");
+          showToast("تم حفظ الباقة");
+        } else if (t.classList.contains("sub-receipt")) {
+          const u = await supabaseClient.storage.from("receipts").createSignedUrl(t.dataset.path, 300);
+          if (u.error) return showToast("تعذر فتح الإيصال: " + u.error.message, "error");
+          window.open(u.data.signedUrl, "_blank", "noopener");
+        } else if (t.classList.contains("sub-pay")) {
+          const ok = t.dataset.ok === "1";
+          if (!confirm(ok ? "اعتماد الدفعة وتفعيل الاشتراك؟" : "رفض الدفعة؟")) return;
+          const rr = await supabaseClient.rpc("admin_review_subscription_payment", { p_id: t.dataset.id, p_approve: ok, p_note: null });
+          if (rr.error) return showToast("تعذر التحديث: " + rr.error.message, "error");
+          showToast(ok ? "تم اعتماد الدفعة وتفعيل الاشتراك" : "تم رفض الدفعة"); void renderAdmOv();
+        }
+      };
+    }
     async function syncServerReviews() {
       if (!supabaseClient) return;
       const { data, error } = await supabaseClient.from("reviews").select("id, provider_id, rating, quality, punctuality, cleanliness, attitude, photo_accuracy, comment, reviewer_name, created_at").order("created_at", { ascending: false }).limit(500);
@@ -1135,7 +1285,7 @@
       coreSyncInFlight = (async () => {
         try {
           const [{ data: remoteProviders, error: pe }, { data: remoteServices, error: se }, { data: remoteWorks }] = await Promise.all([
-            supabaseClient.from("service_providers").select("id, user_id, display_name, bio, service_categories, city, district, is_available, average_rating, avatar_url, verification_status"),
+            supabaseClient.from("service_providers").select("id, user_id, display_name, bio, service_categories, city, district, is_available, average_rating, avatar_url, verification_status, subscription_paused"),
             supabaseClient.from("service_offers").select("*").eq("status", "published"),
             supabaseClient.from("portfolio_items").select("id, provider_id, image_url, caption, created_at")
           ]);
@@ -1147,7 +1297,7 @@
             const localUserId = localUserId0 || local?.user_id || null;
             if (!local) { local = { id: db.providerProfiles.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1, user_id: localUserId }; db.providerProfiles.push(local); }
             const cityName = row.city || local.city || "";
-            Object.assign(local, { supabase_id: row.id, auth_user_id: row.user_id || local.auth_user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: getCountryByCity(cityName), city: cityName, region: getRegionByCity(cityName), district: row.district || "", specialties: Array.isArray(row.service_categories) ? row.service_categories : [], avatar_url: (row.avatar_url && /^https?:/.test(row.avatar_url)) ? row.avatar_url : (local.avatar_url || ASSETS.hero), approval_status: row.verification_status, is_available: row.is_available !== false, avg_rating: Number(row.average_rating || 0), is_demo: false });
+            Object.assign(local, { subscription_paused: !!row.subscription_paused, supabase_id: row.id, auth_user_id: row.user_id || local.auth_user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: getCountryByCity(cityName), city: cityName, region: getRegionByCity(cityName), district: row.district || "", specialties: Array.isArray(row.service_categories) ? row.service_categories : [], avatar_url: (row.avatar_url && /^https?:/.test(row.avatar_url)) ? row.avatar_url : (local.avatar_url || ASSETS.hero), approval_status: row.verification_status, is_available: row.is_available !== false, avg_rating: Number(row.average_rating || 0), is_demo: false });
           });
           (remoteServices || []).forEach(row => {
             const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id);
@@ -1188,6 +1338,7 @@
           }
           try { await syncServerAds(); } catch (e) { console.warn("ads sync failed", e); }
           try { await syncServerReviews(); } catch (e) { console.warn("reviews sync failed", e); }
+          try { await loadSubscriptionState(); } catch (e) { console.warn("subscription state failed", e); }
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
           return true;
         } catch (error) { console.warn("Supabase core sync unavailable:", error); return false; }
@@ -1711,7 +1862,7 @@
     function renderHome() {
       const approvedProviders = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        return p.approval_status === "approved" && u && u.is_active;
+        return p.approval_status === "approved" && u && u.is_active && !p.subscription_paused;
       });
       const topProviders = [...approvedProviders].sort((a, b) => (b.is_promoted - a.is_promoted) || (b.avg_rating - a.avg_rating)).slice(0, 4);
       const nearbyProviders = approvedProviders.filter(p => p.city === db.selectedCity);
@@ -1907,7 +2058,7 @@
       const f = appState.filters;
       const results = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        if (p.approval_status !== "approved" || !u || !u.is_active) return false;
+        if (p.approval_status !== "approved" || !u || !u.is_active || p.subscription_paused) return false;
         const pCountry = p.country || getCountryByCity(p.city);
         if (f.country && pCountry !== f.country) return false;
         if (f.city && p.city !== f.city) return false;
