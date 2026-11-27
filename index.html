@@ -847,6 +847,125 @@
         if (rr.error) return showToast("تعذر التحديث: " + rr.error.message, "error");
         showToast("تم تحديث حالة التاجرة"); void loadAdminMerchants(); }; });
     }
+    function adMe() { const u = currentUser(); return u && u.auth_user_id ? u : null; }
+    async function syncServerAds() {
+      if (!supabaseClient) return false;
+      const me = adMe();
+      const cols = "id, title, description, image_url, target_url, status, created_at, meta" + (me ? ", advertiser_user_id" : "");
+      const r = await supabaseClient.from("advertisements").select(cols).order("created_at", { ascending: false }).limit(200);
+      if (r.error) { console.warn("ads read failed:", r.error.message); return false; }
+      const ads = getVisualAds(); const seen = new Set();
+      const authToLocal = new Map(db.users.filter(u => u.auth_user_id).map(u => [u.auth_user_id, u.id]));
+      r.data.forEach(row => {
+        seen.add(row.id);
+        const m = row.meta || {};
+        const mine = !!me && (me.role === "admin" || row.advertiser_user_id === me.auth_user_id);
+        let local = ads.find(a => a.supabase_id === row.id);
+        if (!local) { local = { id: ads.reduce((x, a) => Math.max(x, Number(a.id) || 0), 0) + 1 }; ads.unshift(local); }
+        local.supabase_id = row.id; local.server_status = row.status; local.is_active = row.status === "active"; delete local.pending_sync;
+        if (!(mine && local.sync_hash)) {
+          Object.assign(local, {
+            ad_type: m.ad_type || "general", title: row.title, details: row.description || "", image_url: row.image_url || "",
+            subtitle: m.subtitle || "", cta_text: m.cta_text || "التفاصيل", target_type: m.target_type || "ad_detail", target_value: m.target_value || "",
+            owner_name: m.owner_name || "", owner_avatar: m.owner_avatar || "", bazaar_logo: m.logo_url || "", video_url: m.video_url || "",
+            participants: m.participants || [], items: m.items || [],
+            owner_user_id: me && row.advertiser_user_id === me.auth_user_id ? me.id : (authToLocal.get(row.advertiser_user_id) || 0)
+          });
+        } else {
+          local.owner_user_id = me.role === "admin" && row.advertiser_user_id !== me.auth_user_id ? (authToLocal.get(row.advertiser_user_id) || local.owner_user_id || 0) : me.id;
+        }
+      });
+      for (let i = ads.length - 1; i >= 0; i--) { if (ads[i].supabase_id && !seen.has(ads[i].supabase_id)) ads.splice(i, 1); }
+      renderVisualAdStrip();
+      return true;
+    }
+    async function adUploadData(v, uid) {
+      if (typeof v !== "string" || !v.startsWith("data:")) return v;
+      try {
+        const blob = await (await fetch(v)).blob();
+        if (!["image/jpeg", "image/png", "image/webp"].includes(blob.type) || blob.size > 5 * 1024 * 1024) return v;
+        const ext = blob.type === "image/png" ? "png" : (blob.type === "image/webp" ? "webp" : "jpg");
+        const path = uid + "/ad" + Date.now() + Math.floor(Math.random() * 1000) + "." + ext;
+        const up = await supabaseClient.storage.from("media").upload(path, blob, { contentType: blob.type, upsert: false });
+        if (up.error) { console.warn("ad upload failed:", up.error.message); return v; }
+        return supabaseClient.storage.from("media").getPublicUrl(path).data.publicUrl;
+      } catch (e) { return v; }
+    }
+    let adPushTimer = null, adPushBusy = false;
+    function scheduleAdPush() { clearTimeout(adPushTimer); adPushTimer = setTimeout(() => { void pushAds(); }, 1500); }
+    async function pushAds() {
+      const me = adMe(); if (!supabaseClient || !me || adPushBusy) return;
+      adPushBusy = true;
+      try {
+        for (const ad of getVisualAds()) {
+          const owns = me.role === "admin" || Number(ad.owner_user_id) === Number(me.id);
+          if (!owns || !(ad.pending_sync || ad.supabase_id)) continue;
+          if (ad.supabase_id && ad.server_status === undefined) continue;
+          ad.image_url = await adUploadData(ad.image_url, me.auth_user_id);
+          ad.bazaar_logo = await adUploadData(ad.bazaar_logo, me.auth_user_id);
+          ad.owner_avatar = await adUploadData(ad.owner_avatar, me.auth_user_id);
+          if (Array.isArray(ad.items)) for (const it of ad.items) it.image_url = await adUploadData(it.image_url, me.auth_user_id);
+          const payload = {
+            title: ad.title || "إعلان", description: ad.details || "", image_url: ad.image_url || null,
+            target_url: ad.target_type === "url" ? (ad.target_value || null) : null,
+            meta: { ad_type: ad.ad_type, subtitle: ad.subtitle || "", cta_text: ad.cta_text || "", target_type: ad.target_type || "ad_detail", target_value: ad.target_value || "", owner_name: ad.owner_name || "", owner_avatar: ad.owner_avatar || "", logo_url: ad.bazaar_logo || "", video_url: ad.video_url || "", participants: ad.participants || [], items: ad.items || [] }
+          };
+          const h = JSON.stringify(payload);
+          if (ad.supabase_id) {
+            if (ad.sync_hash === h) continue;
+            const r = await supabaseClient.from("advertisements").update(payload).eq("id", ad.supabase_id);
+            if (r.error) { console.warn("ad update failed:", r.error.message); showToast("تعذر حفظ تعديل الإعلان على الخادم: " + r.error.message, "error"); continue; }
+            ad.sync_hash = h;
+          } else {
+            const r = await supabaseClient.from("advertisements").insert({ ...payload, placement: "strip", status: me.role === "admin" ? "active" : "pending" }).select("id, status").single();
+            if (r.error) { console.warn("ad insert failed:", r.error.message); showToast("تعذر حفظ الإعلان على الخادم: " + r.error.message, "error"); ad.pending_sync = false; continue; }
+            ad.supabase_id = r.data.id; ad.server_status = r.data.status; ad.is_active = r.data.status === "active"; delete ad.pending_sync; ad.sync_hash = h;
+          }
+        }
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+      } finally { adPushBusy = false; }
+    }
+    function renderAdVideo(ad, editable) {
+      const player = ad.video_url ? `<video src="${esc(ad.video_url)}" controls playsinline preload="metadata" class="w-full max-h-96 rounded-2xl bg-black"></video>` : "";
+      const up = editable ? (ad.supabase_id
+        ? `<label class="inline-block px-4 py-2 rounded-xl bg-[#EFE0C3] text-xs font-bold text-[#4A332A] cursor-pointer">🎬 ${ad.video_url ? "تغيير الفيديو" : "إضافة فيديو"} (mp4 أو webm حتى 50 ميغابايت)<input id="adVideoInput" data-ad-id="${esc(ad.id)}" type="file" accept="video/mp4,video/webm" class="hidden" /></label>`
+        : '<p class="text-[11px] text-[#735447]">يمكنك إضافة فيديو بعد حفظ الإعلان على الخادم (ثوانٍ بعد النشر).</p>') : "";
+      return (player || up) ? `<div class="space-y-2">${player}${up}</div>` : "";
+    }
+    function bindAdVideo() {
+      const inp = document.getElementById("adVideoInput"); if (!inp) return;
+      inp.onchange = async () => {
+        const file = inp.files && inp.files[0]; const me = adMe();
+        const ad = getVisualAds().find(x => String(x.id) === String(inp.dataset.adId));
+        if (!file || !ad || !me || !supabaseClient) return;
+        if (!["video/mp4", "video/webm"].includes(file.type)) return showToast("الصيغ المسموحة: mp4 أو webm فقط", "error");
+        if (file.size > 50 * 1024 * 1024) return showToast("حجم الفيديو أكبر من 50 ميغابايت", "error");
+        showToast("جارٍ رفع الفيديو...", "warn");
+        const path = me.auth_user_id + "/adv" + Date.now() + (file.type === "video/webm" ? ".webm" : ".mp4");
+        const up = await supabaseClient.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+        if (up.error) return showToast("تعذر رفع الفيديو: " + up.error.message, "error");
+        ad.video_url = supabaseClient.storage.from("media").getPublicUrl(path).data.publicUrl;
+        saveDB(); renderMain(); showToast("تم رفع الفيديو");
+      };
+    }
+    async function loadAdminPendingAds() {
+      const box = document.getElementById("adminPendingAdsBox"); if (!box || !supabaseClient) return;
+      const r = await supabaseClient.from("advertisements").select("id, title, image_url, status, created_at, meta").eq("status", "pending").order("created_at", { ascending: false }).limit(50);
+      if (r.error) { box.textContent = "الإعلانات المعلقة غير متاحة: " + r.error.message; return; }
+      box.innerHTML = '<strong class="text-sm text-[#4A332A]">📢 إعلانات بانتظار الاعتماد (' + r.data.length + ')</strong>' + (r.data.map(x => `
+        <div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-[#E8DACA]">
+          <div class="flex items-center gap-2 min-w-0">${x.image_url ? `<img src="${esc(x.image_url)}" class="w-10 h-10 rounded-lg object-cover" />` : ""}<div class="min-w-0"><div class="font-bold truncate">${esc(x.title)}</div><div class="text-[11px]">${esc((x.meta && x.meta.owner_name) || "")}</div></div></div>
+          <div class="flex gap-1.5">
+            <button data-ad="${esc(x.id)}" data-ast="active" class="adm-ad-btn px-3 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[11px] font-bold">اعتماد ونشر</button>
+            <button data-ad="${esc(x.id)}" data-ast="rejected" class="adm-ad-btn px-3 py-1 rounded-lg bg-rose-100 text-rose-800 text-[11px] font-bold">رفض</button>
+          </div>
+        </div>`).join("") || '<p class="mt-2">لا توجد إعلانات معلقة.</p>');
+      box.querySelectorAll(".adm-ad-btn").forEach(b => { b.onclick = async () => {
+        const rr = await supabaseClient.rpc("set_ad_status", { p_ad_id: b.dataset.ad, p_status: b.dataset.ast });
+        if (rr.error) return showToast("تعذر التحديث: " + rr.error.message, "error");
+        showToast(b.dataset.ast === "active" ? "تم نشر الإعلان" : "تم رفض الإعلان");
+        await syncServerAds(); void loadAdminPendingAds(); }; });
+    }
     async function loadAdminNotifBox() {
       const box = document.getElementById("adminNotifBox");
       if (!box || !supabaseClient) return;
@@ -865,6 +984,7 @@
     async function saveDB() {
       db = shrinkEmbeddedAssets(db);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+      scheduleAdPush();
       if (!supabaseClient || !verifiedAdminUserId) return;
       try {
         const { error } = await supabaseClient
@@ -938,6 +1058,7 @@
               Object.assign(local, { supabase_id: row.id, client_id: clientLocalId, provider_id: provider.id, service_id: svc.id, booking_date: when.toLocaleDateString("en-CA"), booking_time: when.toTimeString().slice(0, 5), location_type: row.location_type || "home", address: row.address || "", notes: row.customer_notes || "", total_price_sar: Number(row.total_amount || 0), currency: row.currency || "SAR", commission_sar: 0, status: row.status, is_demo: false });
             });
           }
+          try { await syncServerAds(); } catch (e) { console.warn("ads sync failed", e); }
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
           return true;
         } catch (error) { console.warn("Supabase core sync unavailable:", error); return false; }
@@ -1845,6 +1966,8 @@
               <button id="editThisAdBtn" data-edit-ad-modal="${ad.id}" class="px-4 py-2 rounded-xl bg-[#C89D54] text-white text-xs font-extrabold shadow-sm hover:opacity-90 transition">✏️ تعديل صورة وتفاصيل البازار</button>
             ` : ""}
           </div>
+
+          ${renderAdVideo(ad, editable)}
 
           <div class="glass-card rounded-3xl overflow-hidden border border-[#E8DACA] grid grid-cols-1 md:grid-cols-12 bg-white">
             <div class="md:col-span-5 bg-[#F5ECE0] relative">
@@ -2879,6 +3002,7 @@
 
             <div id="adminNotifBox" class="p-4 rounded-2xl bg-[#FFF8E7] border border-[#C89D54]/40 text-xs text-[#735447]">جاري تحميل إشعارات التسجيل...</div>
             <div id="adminMerchantsBox" class="p-4 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs text-[#735447]">جاري تحميل التاجرات...</div>
+            <div id="adminPendingAdsBox" class="p-4 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs text-[#735447]">جاري تحميل الإعلانات المعلقة...</div>
             <div class="space-y-3">
               ${db.providerProfiles.map(p => {
                 const u = db.users.find(x => x.id === p.user_id);
@@ -3796,6 +3920,8 @@
       if (appState.route === "shop") void loadShop();
       if (document.getElementById("myProductsBox")) void loadMyProducts();
       if (document.getElementById("adminMerchantsBox")) void loadAdminMerchants();
+      if (document.getElementById("adminPendingAdsBox")) void loadAdminPendingAds();
+      bindAdVideo();
     }
 
     function bindEvents() {
@@ -4161,14 +4287,15 @@
             cta_text: document.getElementById("mAdCta").value.trim() || "استكشفي البازار",
             target_type: "ad_detail",
             target_value: "",
-            is_active: true,
+            is_active: false,
+            pending_sync: true,
             participants: [{ provider_id: 0, name: document.getElementById("mAdOwnerName").value.trim() || u.full_name, booth: u.store_name || "متجر مشارك", city: u.city || "" }],
             items: []
           });
           saveDB();
           renderVisualAdStrip();
           renderMain();
-          showToast("تم نشر إعلانك / بازارك في الشريط المتحرك بنجاح ✓");
+          showToast("تم إرسال إعلانك للإدارة، وسيظهر في الشريط بعد الاعتماد ✓");
         };
       }
       document.querySelectorAll(".ad-strip-cta-btn").forEach(b => {
@@ -4538,7 +4665,8 @@
               cta_text: document.getElementById("visAdCta").value.trim() || "التفاصيل",
               target_type: document.getElementById("visAdTargetType").value,
               target_value: document.getElementById("visAdTargetVal").value.trim(),
-              is_active: true
+              is_active: true,
+              pending_sync: true
             });
             db.visualAds = ads;
             saveDB();
@@ -4555,13 +4683,28 @@
         };
       }
       document.querySelectorAll(".toggle-vis-ad-btn").forEach(b => {
-        b.onclick = () => {
+        b.onclick = async () => {
           const ad = getVisualAds().find(x => String(x.id) === String(b.dataset.toggleVisAd));
+          if (ad && ad.supabase_id && supabaseClient) {
+            const me = currentUser(); const turnOn = ad.is_active === false;
+            if (me && me.role === "admin") {
+              const r = await supabaseClient.rpc("set_ad_status", { p_ad_id: ad.supabase_id, p_status: turnOn ? "active" : "paused" });
+              if (r.error) return showToast("تعذر تحديث حالة الإعلان: " + r.error.message, "error");
+              ad.server_status = turnOn ? "active" : "paused";
+            } else {
+              if (!turnOn) return showToast("إخفاء إعلان معتمد يتم عبر الإدارة", "warn");
+              const r = await supabaseClient.from("advertisements").update({ status: "pending" }).eq("id", ad.supabase_id);
+              if (r.error) return showToast("تعذر الإرسال للإدارة: " + r.error.message, "error");
+              ad.server_status = "pending"; saveDB(); renderMain(); return showToast("أُرسل الإعلان للإدارة للاعتماد");
+            }
+          }
           if (ad) { ad.is_active = ad.is_active === false; saveDB(); renderMain(); showToast("تم تحديث حالة الإعلان"); }
         };
       });
       document.querySelectorAll(".del-vis-ad-btn").forEach(b => {
         b.onclick = () => {
+          const dAd = getVisualAds().find(x => String(x.id) === String(b.dataset.delVisAd));
+          if (dAd && dAd.supabase_id && supabaseClient) void supabaseClient.from("advertisements").delete().eq("id", dAd.supabase_id).then(r => { if (r.error) showToast("تعذر الحذف من الخادم: " + r.error.message, "error"); });
           db.visualAds = getVisualAds().filter(x => String(x.id) !== String(b.dataset.delVisAd));
           saveDB(); renderMain(); showToast("تم حذف الإعلان من الشريط");
         };
