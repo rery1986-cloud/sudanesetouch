@@ -1840,7 +1840,12 @@
       if (!supabaseClient) return showToast("خدمة المصادقة غير متاحة حالياً", "error");
       openModal(`
         <h2 class="text-xl font-extrabold text-[#4A332A] mb-1">🛡️ دعوة للانضمام كمشرفة في لمسة</h2>
-        <p class="text-xs text-[#735447] mb-4">أدخلي بياناتكِ لإنشاء حسابكِ. الرابط يعمل لمرة واحدة فقط.</p>
+        <div id="openInviteWelcome" class="mb-4 p-4 rounded-2xl bg-[#EFE0C3]/60 border border-[#C89D54]/60 text-center space-y-1">
+          <div class="text-base font-extrabold text-[#6D1A36]">نتشرف بدعوتكِ كمشرفة في لمسة 🌿</div>
+          <div id="openInviteScope" class="text-xs font-bold text-[#4A332A]">انضمي إلى فريق الإشراف على المنصة</div>
+          <div id="openInvitePerms" class="text-[11px] text-[#735447]"></div>
+          <div class="text-[11px] text-[#735447]">أكملي بياناتكِ أدناه لقبول الدعوة. الرابط يعمل لمرة واحدة فقط.</div>
+        </div>
         <form id="openInviteForm" class="space-y-3">
           <input name="full_name" required minlength="2" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="الاسم الكامل" />
           <input name="email" type="email" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="البريد الإلكتروني" />
@@ -1850,6 +1855,23 @@
           <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">إنشاء الحساب وتفعيل الدعوة</button>
         </form>
       `);
+      (async () => {
+        try {
+          const info = await supabaseClient.rpc("get_open_invitation_info", { p_token: token });
+          const d = info.data;
+          if (info.error || !d) return;
+          const sc = document.getElementById("openInviteScope"), pm = document.getElementById("openInvitePerms"), btn = document.querySelector("#openInviteForm button[type=submit]");
+          if (!sc) return;
+          if (!d.valid) { sc.textContent = "هذا الرابط غير صالح أو منتهٍ أو سبق استخدامه. اطلبي رابطاً جديداً من الإدارة."; sc.className = "text-xs font-bold text-rose-700"; if (btn) btn.disabled = true; return; }
+          if (d.scope_region || d.scope_country) {
+            const cn = d.scope_country ? getCountryObj(d.scope_country).name : "";
+            sc.textContent = "نتشرف بدعوتكِ كمشرفة لمنطقة " + [d.scope_region, cn].filter(Boolean).join(" - ");
+          }
+          const PL = { manage_ads: "إدارة الإعلانات والبازارات", manage_providers: "مراجعة مقدمات الخدمة", manage_reports: "معالجة البلاغات", manage_categories: "إدارة التصنيفات" };
+          const pl = (d.permissions || []).map(p => PL[p]).filter(Boolean);
+          if (pm && pl.length) pm.textContent = "صلاحياتكِ: " + pl.join(" • ");
+        } catch (err) { console.warn("invite info not loaded:", err); }
+      })();
       document.getElementById("openInviteForm").onsubmit = async e => {
         e.preventDefault(); const fd = new FormData(e.target);
         const fullName = String(fd.get("full_name") || "").trim(), email = String(fd.get("email") || "").trim().toLowerCase(), phone = String(fd.get("phone") || "").trim(), pwd = String(fd.get("pwd") || "");
