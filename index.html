@@ -1793,6 +1793,68 @@
         </div>
       `;
     }
+    function renderOperationsPanel(user) {
+      const statusMap = {
+        pending: { label: "قيد الانتظار", cls: "bg-amber-100 text-amber-800" },
+        accepted: { label: "مقبول", cls: "bg-blue-100 text-blue-800" },
+        confirmed: { label: "مؤكد", cls: "bg-indigo-100 text-indigo-800" },
+        completed: { label: "مكتمل", cls: "bg-emerald-100 text-emerald-800" },
+        cancelled: { label: "ملغي", cls: "bg-stone-200 text-stone-700" },
+        rejected: { label: "مرفوض", cls: "bg-rose-100 text-rose-800" }
+      };
+      if (user.role === "client") {
+        const bookings = db.bookings.filter(b => b.client_id === user.id).slice().reverse();
+        return `
+          <div class="glass-card p-5 rounded-3xl space-y-4 border border-[#E8DACA]">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 class="text-lg font-extrabold text-[#4A332A]">إدارة طلباتي وحجوزاتي</h2><p class="text-xs text-[#735447] mt-1">تابعي حالة طلبات الخدمات ومواعيدك الأخيرة.</p></div>
+              <button data-nav="explore" class="nav-btn btn-rose px-3 py-2 rounded-xl text-xs font-bold">+ طلب خدمة جديدة</button>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+              <div class="p-3 rounded-2xl bg-[#FBF7F2]"><div class="text-lg font-extrabold text-[#4A332A]">${bookings.length}</div><div class="text-[#735447]">كل الطلبات</div></div>
+              <div class="p-3 rounded-2xl bg-amber-50"><div class="text-lg font-extrabold text-amber-800">${bookings.filter(b => b.status === "pending").length}</div><div class="text-amber-900">قيد الانتظار</div></div>
+              <div class="p-3 rounded-2xl bg-indigo-50"><div class="text-lg font-extrabold text-indigo-800">${bookings.filter(b => ["accepted", "confirmed"].includes(b.status)).length}</div><div class="text-indigo-900">قادمة</div></div>
+              <div class="p-3 rounded-2xl bg-emerald-50"><div class="text-lg font-extrabold text-emerald-800">${bookings.filter(b => b.status === "completed").length}</div><div class="text-emerald-900">مكتملة</div></div>
+            </div>
+            <div class="space-y-2">
+              ${bookings.slice(0, 3).map(b => {
+                const svc = db.services.find(s => s.id === b.service_id);
+                const prov = db.providerProfiles.find(p => p.id === b.provider_id);
+                const st = statusMap[b.status] || statusMap.pending;
+                return `<div class="p-3 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] flex flex-wrap items-center justify-between gap-2 text-xs"><div><div class="font-bold text-[#4A332A]">${esc(svc?.title || "طلب خدمة")}</div><div class="text-[#735447] mt-1">${esc(prov?.display_name || "مقدمة خدمة")} • ${esc(b.booking_date || "موعد غير محدد")} ${esc(b.booking_time || "")}</div></div><span class="px-2.5 py-1 rounded-full font-bold ${st.cls}">${st.label}</span></div>`;
+              }).join("") || `<p class="text-xs text-[#735447]">لا توجد طلبات بعد. ابدئي باختيار خدمة من الاستكشاف.</p>`}
+            </div>
+          </div>
+        `;
+      }
+      if (user.role === "provider") {
+        const profile = db.providerProfiles.find(p => p.user_id === user.id);
+        const services = profile ? db.services.filter(s => s.provider_id === profile.id) : [];
+        const bookings = profile ? db.bookings.filter(b => b.provider_id === profile.id).slice().reverse() : [];
+        return `
+          <div class="glass-card p-5 rounded-3xl space-y-4 border border-[#E8DACA]">
+            <div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-lg font-extrabold text-[#4A332A]">إدارة خدماتي وطلبات العميلات</h2><p class="text-xs text-[#735447] mt-1">راجعي الخدمات المنشورة والطلبات الواردة من العميلات.</p></div><span class="px-3 py-1.5 rounded-full bg-[#EFE0C3] text-[#4A332A] text-xs font-bold">${services.length} خدمات • ${bookings.length} طلبات</span></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div class="rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] p-4 space-y-2"><h3 class="font-bold text-sm text-[#4A332A]">الخدمات المنشورة</h3>${services.slice(0, 4).map(s => `<div class="flex items-center justify-between gap-2 text-xs"><span class="font-semibold">${esc(s.title)}</span><span class="text-[#B3746E] font-bold">${esc(String(s.price_sar || 0))} ر.س</span></div>`).join("") || `<p class="text-xs text-[#735447]">لم تضيفي خدمات بعد.</p>`}</div>
+              <div class="rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] p-4 space-y-2"><h3 class="font-bold text-sm text-[#4A332A]">أحدث الطلبات</h3>${bookings.slice(0, 4).map(b => { const st = statusMap[b.status] || statusMap.pending; return `<div class="flex items-center justify-between gap-2 text-xs"><span class="font-semibold">${esc(b.booking_date || "طلب خدمة")} • ${esc(b.booking_time || "")}</span><span class="px-2 py-0.5 rounded-full font-bold ${st.cls}">${st.label}</span></div>`; }).join("") || `<p class="text-xs text-[#735447]">لا توجد طلبات واردة بعد.</p>`}</div>
+            </div>
+            <p class="text-[11px] text-[#735447]">يمكنك إدارة تفاصيل الخدمات والطلبات من الأقسام التفصيلية أسفل هذه البطاقة.</p>
+          </div>
+        `;
+      }
+      if (user.role === "merchant") {
+        const ads = getVisualAds().filter(ad => Number(ad.owner_user_id) === Number(user.id));
+        const activeAds = ads.filter(ad => ad.is_active !== false);
+        return `
+          <div class="glass-card p-5 rounded-3xl space-y-4 border border-[#E8DACA]">
+            <div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-lg font-extrabold text-[#4A332A]">إدارة إعلاناتي وبازاراتي</h2><p class="text-xs text-[#735447] mt-1">راجعي الإعلانات الخاصة بمتجرك وتابعي حالتها.</p></div><span class="px-3 py-1.5 rounded-full bg-[#EFE0C3] text-[#4A332A] text-xs font-bold">${activeAds.length} نشطة من ${ads.length}</span></div>
+            <div class="space-y-2">${ads.slice().reverse().slice(0, 4).map(ad => `<div class="p-3 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] flex flex-wrap items-center justify-between gap-2 text-xs"><div><div class="font-bold text-[#4A332A]">${esc(ad.title || "إعلان بدون عنوان")}</div><div class="text-[#735447] mt-1">${esc(ad.ad_type === "bazaar" ? "بازار / فعالية" : ad.ad_type === "product" ? "منتجات" : "إعلان عام")} • ${esc(ad.city || "كل المدن")}</div></div><span class="px-2.5 py-1 rounded-full font-bold ${ad.is_active === false ? "bg-stone-200 text-stone-700" : "bg-emerald-100 text-emerald-800"}">${ad.is_active === false ? "مخفي" : "نشط"}</span></div>`).join("") || `<p class="text-xs text-[#735447]">لم تنشري إعلانات أو بازارات بعد.</p>`}</div>
+            <p class="text-[11px] text-[#735447]">يمكنك إضافة إعلان أو تعديل إعلاناتك من نموذج إدارة الإعلانات أسفل البطاقة.</p>
+          </div>
+        `;
+      }
+      return "";
+    }
     function renderClientDashboard(user) {
       const myBookings = db.bookings.filter(b => b.client_id === user.id).slice().reverse();
       const myFavs = db.providerProfiles.filter(p => db.favorites.includes(p.id));
@@ -1801,6 +1863,7 @@
       return `
         <section class="max-w-6xl mx-auto px-4 py-8 space-y-6">
           ${renderAccountSummary(user)}
+          ${renderOperationsPanel(user)}
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 class="text-2xl font-extrabold text-[#4A332A]">مرحباً ${user.full_name} 🌷</h1>
@@ -1929,6 +1992,7 @@
       return `
         <section class="max-w-7xl mx-auto px-4 py-8 space-y-6">
           ${renderAccountSummary(user)}
+          ${renderOperationsPanel(user)}
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div class="space-y-1">
               <div class="flex items-center gap-2">
@@ -2167,6 +2231,7 @@
       return `
         <section class="max-w-7xl mx-auto px-4 py-8 space-y-6">
           ${renderAccountSummary(user)}
+          ${renderOperationsPanel(user)}
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div>
               <div class="flex flex-wrap items-center gap-2 mb-1">
