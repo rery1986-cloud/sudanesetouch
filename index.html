@@ -859,6 +859,72 @@
       return true;
     }
 
+    async function activateSupabaseUser(authUser) {
+      if (!authUser || !authUser.email || !supabaseClient) return false;
+      const { data: profile, error } = await supabaseClient
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .maybeSingle();
+      if (error || !profile) {
+        console.warn("Public profile load failed:", error?.message || "profile not found");
+        return false;
+      }
+      const existing = db.users.find(user => user.auth_user_id === authUser.id || user.email?.toLowerCase() === authUser.email.toLowerCase());
+      const nextId = existing?.id || (db.users.reduce((max, user) => Math.max(max, Number(user.id) || 0), 0) + 1);
+      const appUser = {
+        ...(existing || {}),
+        id: nextId,
+        auth_user_id: authUser.id,
+        full_name: profile.full_name,
+        email: authUser.email.toLowerCase(),
+        phone_private: profile.phone_private || "",
+        role: profile.role,
+        country: profile.country || "",
+        city: profile.city || "",
+        district: profile.district || "",
+        specialty: profile.specialty || "",
+        store_name: profile.store_name || "",
+        password: null,
+        is_active: profile.is_active !== false,
+        is_demo: false
+      };
+      if (existing) Object.assign(existing, appUser);
+      else db.users.push(appUser);
+      if (appUser.role === "provider" && !db.providerProfiles.some(profile => profile.user_id === nextId)) {
+        const pid = db.providerProfiles.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
+        db.providerProfiles.push({
+          id: pid, user_id: nextId, display_name: appUser.full_name,
+          bio: "خبيرة تجميل جديدة في منصة لمسة", city: appUser.city,
+          district: appUser.district, specialties: [appUser.specialty || "تجميل وعناية"],
+          working_hours: "السبت - الخميس: 10 ص - 9 م", avatar_url: ASSETS.hero,
+          approval_status: "pending", subscription_tier: "free", is_promoted: false,
+          views_count: 0, avg_rating: 0, reviews_count: 0, is_demo: false
+        });
+      }
+      db.currentUserId = nextId;
+      await saveDB();
+      return appUser;
+    }
+    async function signInPublicUser(email, password, selectedRole) {
+      if (!supabaseClient) return { error: new Error("Supabase غير متاح") };
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) return { error };
+      const appUser = await activateSupabaseUser(data.user);
+      if (!appUser) {
+        await supabaseClient.auth.signOut();
+        return { error: new Error("لم يتم العثور على ملف المستخدم في Supabase") };
+      }
+      if (!appUser.is_active) {
+        await supabaseClient.auth.signOut();
+        return { error: new Error("هذا الحساب معطل من الإدارة") };
+      }
+      if (appUser.role !== selectedRole) {
+        await supabaseClient.auth.signOut();
+        return { error: new Error(`هذا الحساب مسجل كـ «${({ admin: "مديرة النظام", moderator: "مشرفة", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" }[appUser.role] || appUser.role)}»`) };
+      }
+      return { data: appUser };
+    }
     async function initializeAdminAuth() {
       if (!supabaseClient) return;
       supabaseClient.auth.onAuthStateChange((event, nextSession) => {
@@ -871,10 +937,15 @@
           showToast("رابط الاستعادة غير صالح لهذا الحساب.", "error");
         } else if (event === "SIGNED_IN" && nextSession?.user) {
           setTimeout(async () => {
-            if (await activateVerifiedAdmin(nextSession.user)) return;
+            if (nextSession.user.email?.toLowerCase() === ADMIN_EMAIL && await activateVerifiedAdmin(nextSession.user)) return;
+            if (await activateSupabaseUser(nextSession.user)) {
+              renderHeader();
+              renderMain();
+              return;
+            }
             const { error: signOutError } = await supabaseClient.auth.signOut();
-            if (signOutError) console.error("Sign-out after administrator verification failed:", signOutError.message);
-            showToast("تعذر تأكيد صلاحية مدير النظام. تحققي من البريد المرتبط بالحساب.", "error");
+            if (signOutError) console.error("Sign-out after user verification failed:", signOutError.message);
+            showToast("تعذر تحميل ملف الحساب من Supabase. تحققي من إعدادات المشروع.", "error");
           }, 0);
         } else if (event === "SIGNED_OUT" && verifiedAdminUserId) {
           verifiedAdminUserId = null;
@@ -2773,21 +2844,22 @@
           }
           return;
         }
-        const u = db.users.find(x => x.email === email && x.password === pwd);
-        if (!u) return showToast("بيانات الدخول غير صحيحة", "error");
-        if (!u.is_active) return showToast("هذا الحساب معطل من الإدارة", "error");
-        if (u.role === "admin" && (!verifiedAdminUserId || u.auth_user_id !== verifiedAdminUserId)) {
-          return showToast("دخول مديرة النظام يتطلب التحقق من البريد المرتبط بالحساب", "error");
+        const publicResult = await signInPublicUser(email, pwd, selectedRole);
+        if (!publicResult.error) {
+          const u = publicResult.data;
+          closeModal();
+          navigate("dashboard");
+          showToast(`أهلاً بك يا ${u.full_name}`);
+          return;
         }
-        const roleOk = selectedRole === "admin" ? (u.role === "admin" || u.role === "moderator") : u.role === selectedRole;
-        if (!roleOk) {
-          return showToast(`هذا الحساب مسجل كـ «${ROLE_NAMES[u.role] || u.role}» — اختاري نوع الحساب المناسب من الأعلى`, "error");
-        }
-        db.currentUserId = u.id;
+        const demo = db.users.find(x => x.email === email && x.password === pwd && x.is_demo);
+        if (!demo) return showToast(publicResult.error.message || "بيانات الدخول غير صحيحة", "error");
+        if (demo.role !== selectedRole) return showToast(`هذا الحساب مسجل كـ «${ROLE_NAMES[demo.role] || demo.role}» — اختاري نوع الحساب المناسب من الأعلى`, "error");
+        db.currentUserId = demo.id;
         saveDB();
         closeModal();
         navigate("dashboard");
-        showToast(`أهلاً بك يا ${u.full_name}`);
+        showToast(`أهلاً بك يا ${demo.full_name}`);
       };
       document.querySelectorAll(".demo-login-btn").forEach(btn => {
         btn.onclick = () => {
@@ -2848,40 +2920,49 @@
           regRoleSel.onchange({ target: regRoleSel });
         }
       }
-      document.getElementById("regForm").onsubmit = e => {
+      document.getElementById("regForm").onsubmit = async e => {
         e.preventDefault();
-        const fd = new FormData(e.target);
-        const email = fd.get("email").trim().toLowerCase();
-        const password = fd.get("password");
-        if (password !== fd.get("confirm_password")) {
-          return showToast("كلمة المرور وتأكيدها غير متطابقين", "error");
-        }
-        if (db.users.some(u => u.email === email)) return showToast("البريد مسجل مسبقاً", "error");
-        const newId = Math.max(...db.users.map(u => u.id)) + 1;
-        const role = fd.get("role");
-        const newUser = {
-          id: newId, full_name: fd.get("full_name").trim(), email,
-          phone_private: fd.get("phone").trim(), password,
-          role, country: fd.get("country"), city: fd.get("city"), store_name: (fd.get("store_name") || "").trim(),
-          is_active: true, is_demo: false
-        };
-        db.users.push(newUser);
-        if (role === "provider") {
-          const pid = Math.max(...db.providerProfiles.map(p => p.id)) + 1;
-          db.providerProfiles.push({
-            id: pid, user_id: newId, display_name: newUser.full_name,
-            bio: "خبيرة تجميل جديدة في منصة لمسة", city: newUser.city,
-            district: fd.get("district") || "", specialties: [fd.get("specialty") || "تجميل وعناية"],
-            working_hours: "السبت - الخميس: 10 ص - 9 م", avatar_url: ASSETS.hero,
-            approval_status: "pending", subscription_tier: "free", is_promoted: false,
-            views_count: 0, avg_rating: 0, reviews_count: 0, is_demo: false
+        const form = e.target;
+        const fd = new FormData(form);
+        const email = String(fd.get("email") || "").trim().toLowerCase();
+        const password = String(fd.get("password") || "");
+        const role = String(fd.get("role") || "client");
+        if (password !== String(fd.get("confirm_password") || "")) return showToast("كلمة المرور وتأكيدها غير متطابقين", "error");
+        if (!["client", "provider", "merchant"].includes(role)) return showToast("نوع الحساب غير مسموح", "error");
+        if (!supabaseClient) return showToast("خدمة التسجيل غير متاحة حالياً", "error");
+        if (db.users.some(u => u.email === email && u.is_demo)) return showToast("استخدمي بريداً إلكترونياً مختلفاً عن الحساب التجريبي", "error");
+        const submitButton = form.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        try {
+          const { data, error } = await supabaseClient.auth.signUp({
+            email, password,
+            options: {
+              emailRedirectTo: getAuthRedirectURL(),
+              data: {
+                role, full_name: String(fd.get("full_name") || "").trim(),
+                phone: String(fd.get("phone") || "").trim(), country: String(fd.get("country") || ""),
+                city: String(fd.get("city") || ""), district: String(fd.get("district") || "").trim(),
+                specialty: String(fd.get("specialty") || "").trim(), store_name: String(fd.get("store_name") || "").trim()
+              }
+            }
           });
+          if (error) return showToast(`تعذر إنشاء الحساب: ${error.message}`, "error");
+          if (data.session && data.user) {
+            const appUser = await activateSupabaseUser(data.user);
+            if (!appUser) return showToast("تم إنشاء الحساب لكن تعذر تحميل ملفه. طبّقي migration profiles ثم حاولي الدخول.", "error");
+            closeModal();
+            navigate("dashboard");
+            showToast(role === "provider" ? "تم تسجيلك! حسابك بانتظار اعتماد الإدارة" : "تم إنشاء حسابك بنجاح");
+          } else {
+            closeModal();
+            showToast("تم إنشاء الحساب. تحققي من بريدك الإلكتروني ثم سجّلي الدخول.");
+          }
+        } catch (error) {
+          console.error("Public Supabase sign-up failed:", error);
+          showToast("تعذر الاتصال بخدمة التسجيل. حاولي مجدداً.", "error");
+        } finally {
+          submitButton.disabled = false;
         }
-        db.currentUserId = newId;
-        saveDB();
-        closeModal();
-        navigate("dashboard");
-        showToast(role === "provider" ? "تم تسجيلك! حسابك بانتظار اعتماد الإدارة" : "تم إنشاء حسابك بنجاح");
       };
     }
 
