@@ -419,6 +419,31 @@
     const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
+    (function () {
+      if (!supabaseClient || !supabaseClient.storage) return;
+      const st = supabaseClient.storage; const origFrom = st.from.bind(st);
+      async function lamsaShrink(file) {
+        try {
+          const bmp = await createImageBitmap(file);
+          const k = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
+          if (k === 1 && file.size <= 400 * 1024) return file;
+          const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(bmp.width * k)); cv.height = Math.max(1, Math.round(bmp.height * k));
+          const cx = cv.getContext("2d"); cx.fillStyle = "#ffffff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(bmp, 0, 0, cv.width, cv.height);
+          const blob = await new Promise(function (res) { cv.toBlob(res, "image/jpeg", 0.8); });
+          return blob && blob.size < file.size ? blob : file;
+        } catch (e) { return file; }
+      }
+      st.from = function (bucket) {
+        const b = origFrom(bucket);
+        if (bucket !== "media" && bucket !== "receipts") return b;
+        const up = b.upload.bind(b);
+        b.upload = async function (path, body, opts) {
+          try { if (body && /^image\/(jpeg|png|webp)$/.test(body.type || "")) { const sh = await lamsaShrink(body); if (sh !== body) { body = sh; opts = Object.assign({}, opts, { contentType: sh.type }); } } } catch (e) {}
+          return up(path, body, opts);
+        };
+        return b;
+      };
+    })();
     let verifiedAdminUserId = null;
     let adminPasswordRecoveryPending = false;
 
@@ -772,7 +797,7 @@
         let imageUrl = null; const file = fd.get("photo");
         if (file && file.size) {
           if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { btn.disabled = false; return showToast("الصيغ المسموحة: JPG أو PNG أو WEBP فقط", "error"); }
-          if (file.size > 5 * 1024 * 1024) { btn.disabled = false; return showToast("حجم الصورة أكبر من 5 ميغابايت", "error"); }
+          if (file.size > 25 * 1024 * 1024) { btn.disabled = false; return showToast("حجم الصورة أكبر من 25 ميغابايت", "error"); }
           const ext = file.type === "image/png" ? "png" : (file.type === "image/webp" ? "webp" : "jpg");
           const path = user.auth_user_id + "/p" + Date.now() + "." + ext;
           const up = await supabaseClient.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
@@ -904,7 +929,7 @@
       if (typeof v !== "string" || !v.startsWith("data:")) return v;
       try {
         const blob = await (await fetch(v)).blob();
-        if (!["image/jpeg", "image/png", "image/webp"].includes(blob.type) || blob.size > 5 * 1024 * 1024) return v;
+        if (!["image/jpeg", "image/png", "image/webp"].includes(blob.type) || blob.size > 25 * 1024 * 1024) return v;
         const ext = blob.type === "image/png" ? "png" : (blob.type === "image/webp" ? "webp" : "jpg");
         const path = uid + "/ad" + Date.now() + Math.floor(Math.random() * 1000) + "." + ext;
         const up = await supabaseClient.storage.from("media").upload(path, blob, { contentType: blob.type, upsert: false });
@@ -1602,7 +1627,7 @@ async function showDisputeDetail(id, box) {
       const user = currentUser();
       if (!supabaseClient || !user?.auth_user_id) { showToast("سجّلي الدخول أولاً", "error"); return null; }
       if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { showToast("الصيغ المسموحة: JPG أو PNG أو WEBP فقط", "error"); return null; }
-      if (file.size > 5 * 1024 * 1024) { showToast("حجم الصورة أكبر من 5 ميغابايت", "error"); return null; }
+      if (file.size > 25 * 1024 * 1024) { showToast("حجم الصورة أكبر من 25 ميغابايت", "error"); return null; }
       if (!profile.supabase_id) await ensureProviderRow(profile, user.auth_user_id);
       if (!profile.supabase_id) return null;
       const ext = file.type === "image/png" ? "png" : (file.type === "image/webp" ? "webp" : "jpg");
