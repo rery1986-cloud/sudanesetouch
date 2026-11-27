@@ -1527,6 +1527,11 @@ async function showDisputeDetail(id, box) {
             const cityName = row.city || local.city || "";
             Object.assign(local, { subscription_paused: !!row.subscription_paused, supabase_id: row.id, auth_user_id: row.user_id || local.auth_user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: getCountryByCity(cityName), city: cityName, region: getRegionByCity(cityName), district: row.district || "", specialties: Array.isArray(row.service_categories) ? row.service_categories : [], avatar_url: (row.avatar_url && /^https?:/.test(row.avatar_url)) ? row.avatar_url : (local.avatar_url || ASSETS.hero), approval_status: row.verification_status, is_available: row.is_available !== false, avg_rating: Number(row.average_rating || 0), is_demo: false });
           });
+          if (Array.isArray(remoteProviders)) {
+            const remoteIds = new Set(remoteProviders.map(r => r.id));
+            const gone = new Set(db.providerProfiles.filter(x => x.supabase_id && !remoteIds.has(x.supabase_id)).map(x => x.id));
+            if (gone.size) { db.providerProfiles = db.providerProfiles.filter(x => !gone.has(x.id)); db.services = db.services.filter(x => !gone.has(x.provider_id)); db.portfolio = db.portfolio.filter(x => !gone.has(x.provider_id)); }
+          }
           (remoteServices || []).forEach(row => {
             const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id);
             if (!provider) return;
@@ -2373,7 +2378,7 @@ async function showDisputeDetail(id, box) {
                 <h3 class="font-extrabold text-base text-[#4A332A] leading-snug">${p.display_name}</h3>
                 <span class="shrink-0 text-xs font-bold bg-[#EFE0C3] px-2 py-0.5 rounded-lg">★ ${p.avg_rating || "جديد"}</span>
               </div>
-              <p class="text-xs text-[#735447]">${getCountryObj(p.country || getCountryByCity(p.city)).flag} ${p.city} · ${p.reviews_count} تقييمًا · ${p.completed_bookings_count || 0} حجزاً</p>
+              <p class="text-xs text-[#735447]">${getCountryObj(p.country || getCountryByCity(p.city)).flag} ${p.city} · ${p.reviews_count || 0} تقييمًا · ${p.completed_bookings_count || 0} حجزاً</p>
               <div class="flex flex-wrap gap-1">
                 ${p.specialties.slice(0, 2).map(sp => `<span class="px-2 py-0.5 rounded-md bg-[#F3EAE0] text-[11px] text-[#4A332A]">${sp}</span>`).join("")}
               </div>
@@ -2700,7 +2705,7 @@ async function showDisputeDetail(id, box) {
                   <button data-report-type="provider" data-report-id="${p.id}" class="report-btn px-3 py-1 rounded-full bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100">🚩 إبلاغ</button>
                 </div>
               </div>
-              <p class="text-sm font-semibold text-[#735447]">📍 ${p.city} · ${p.reviews_count} تقييمًا · ${p.completed_bookings_count || 0} حجزاً • 🕒 ${p.working_hours}</p>
+              <p class="text-sm font-semibold text-[#735447]">📍 ${p.city} · ${p.reviews_count || 0} تقييمًا · ${p.completed_bookings_count || 0} حجزاً • 🕒 ${p.working_hours || "حسب الاتفاق"}</p>
               <p class="text-sm leading-relaxed text-[#4A332A]">${p.bio}</p>
               <div class="flex flex-wrap gap-2">
                 ${p.specialties.map(sp => `<span class="px-3 py-1 rounded-xl bg-[#F3EAE0] text-xs font-bold text-[#4A332A]">${sp}</span>`).join("")}
@@ -2754,7 +2759,7 @@ async function showDisputeDetail(id, box) {
           <!-- Reviews -->
           <div class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-xl font-extrabold text-[#4A332A]">نماذج من تقييمات العميلات (${p.reviews_count} تقييمًا)</h2>
+              <h2 class="text-xl font-extrabold text-[#4A332A]">نماذج من تقييمات العميلات (${p.reviews_count || 0} تقييمًا)</h2>
               <span class="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">✓ التقييم متاح فقط بعد إتمام حجز حقيقي</span>
             </div>
             <div class="glass-card p-4 rounded-2xl grid grid-cols-2 sm:grid-cols-5 gap-3 text-center text-xs">
@@ -3178,7 +3183,7 @@ async function showDisputeDetail(id, box) {
             <div class="grid grid-cols-3 gap-3 text-center">
               <div class="px-4 py-2 rounded-2xl bg-[#F3EAE0]"><div class="text-lg font-extrabold">${p.views_count}</div><div class="text-[11px]">مشاهدة</div></div>
               <div class="px-4 py-2 rounded-2xl bg-[#F3EAE0]"><div class="text-lg font-extrabold">${myBookings.length}</div><div class="text-[11px]">حجز</div></div>
-              <div class="px-4 py-2 rounded-2xl bg-[#EFE0C3]"><div class="text-lg font-extrabold">★ ${p.avg_rating || 0}</div><div class="text-[11px]">(${p.reviews_count} تقييم)</div></div>
+              <div class="px-4 py-2 rounded-2xl bg-[#EFE0C3]"><div class="text-lg font-extrabold">★ ${p.avg_rating || 0}</div><div class="text-[11px]">(${p.reviews_count || 0} تقييم)</div></div>
             </div>
           </div>
 
