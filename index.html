@@ -5228,6 +5228,8 @@ async function showDisputeDetail(id, box) {
       document.querySelectorAll(".del-prov-btn").forEach(b => {
         b.onclick = () => {
           const pid = Number(b.dataset.delProv);
+          const __p = db.providerProfiles.find(x => Number(x.id) === pid); const __u = __p && db.users.find(x => x.id === __p.user_id); const __uid = __p && (__p.auth_user_id || (__u && __u.auth_user_id));
+          if (__uid) { openDeleteAccountModal({ title: "حذف حساب " + esc(__p.display_name || (__u && __u.email) || ""), warn: "سيتم حذف حساب (" + esc((__u && __u.email) || __p.display_name || "") + ") مع كل بياناته وحجوزاته ومحادثاته نهائياً من قاعدة البيانات.", rpc: "admin_delete_user", args: { p_user_id: __uid }, onDone: () => { db.providerProfiles = db.providerProfiles.filter(x => Number(x.id) !== pid); if (__u) db.users = db.users.filter(x => x.id !== __u.id); saveDB(); renderMain(); showToast("تم حذف الحساب نهائياً"); } }); return; }
           db.providerProfiles = db.providerProfiles.filter(x => Number(x.id) !== pid);
           saveDB();
           renderMain();
