@@ -971,7 +971,7 @@
     const aovD = s => s ? esc(String(s).slice(0, 10)) : "-";
     const aovN = v => Number(v || 0).toLocaleString("en-US");
     const aovLtr = v => '<span dir="ltr">' + esc(v || "-") + '</span>';
-    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"]];
+    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"], ["discounts", "🎁 الخصومات"]];
     const AOV_COLS = {
       clients: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحجوزات", x => aovN(x.bookings_as_client)], ["التسجيل", x => aovD(x.created_at)], ["آخر دخول", x => aovD(x.last_sign_in_at || x.last_login_at)], ["الحالة", x => aovSt(x.account_status)]],
       providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التقييم", x => aovN(x.rating)], ["الحجوزات", x => aovN(x.bookings_as_provider)], ["التسجيل", x => aovD(x.created_at)]],
@@ -979,9 +979,10 @@
       bookings: [["رقم", x => "#" + esc(x.booking_number)], ["العميلة", x => esc(x.client_name || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الخدمة", x => esc(x.service || "-")], ["الموعد", x => aovD(x.scheduled_at)], ["المبلغ", x => aovN(x.total_amount) + " " + esc(x.currency || "")], ["الحالة", x => aovSt(x.status)]],
       revenue: [["الحجز", x => "#" + esc(x.booking_number || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الإجمالي", x => aovN(x.gross_amount) + " " + esc(x.currency || "")], ["عمولة المنصة", x => aovN(x.platform_commission)], ["الصافي", x => aovN(x.provider_net_amount)], ["الدفع", x => aovSt(x.payment_status)], ["الطريقة", x => esc(x.payment_method || "-")], ["التاريخ", x => aovD(x.paid_at || x.created_at)]],
       ads: [["العنوان", x => esc(x.title || "-")], ["المعلن", x => esc(x.advertiser_name || "-")], ["الموضع", x => esc(x.placement || "-")], ["الميزانية", x => aovN(x.budget)], ["المشاهدات", x => aovN(x.impressions)], ["النقرات", x => aovN(x.clicks)], ["الحالة", x => aovSt(x.status)], ["التاريخ", x => aovD(x.created_at)]],
+      discounts: [["الكود", x => aovLtr(x.code)], ["النسبة", x => aovN(x.percent) + "%"], ["العميلة", x => esc(x.client_name || x.client_email || "-")], ["ينتهي", x => aovD(x.valid_to)], ["استُخدم", x => x.used_at ? aovD(x.used_at) : "لا"], ["الحالة", x => x.is_active ? "فعّال" : "معطّل"], ["إجراء", x => '<button type="button" class="adm-disc-toggle px-2 py-1 rounded bg-[#EFE0C3] font-bold" data-id="' + esc(x.id) + '" data-a="' + (x.is_active ? "0" : "1") + '">' + (x.is_active ? "تعطيل" : "تفعيل") + '</button>']],
       bazaars: [["الاسم", x => esc(x.name || "-")], ["المنظِّمة", x => esc(x.organizer_name || "-")], ["المكان", x => esc((x.venue || "-") + " / " + (x.city || "-"))], ["من", x => aovD(x.starts_at)], ["إلى", x => aovD(x.ends_at)], ["الحالة", x => aovSt(x.status)]]
     };
-    const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}] };
+    const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}], discounts: ["admin_list_discount_codes", {}] };
     let aovTab = "summary", aovRows = [];
     function aovTable() {
       const q = ((document.getElementById("admOvSearch") || {}).value || "").trim().toLowerCase();
@@ -1025,9 +1026,37 @@
       const r = await supabaseClient.rpc(spec[0], spec[1]);
       if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
       aovRows = r.data || [];
-      body.innerHTML = '<input id="admOvSearch" class="w-full px-3 py-2 rounded-xl bg-white border text-xs mb-2" placeholder="بحث بالاسم أو البريد أو الجوال أو المدينة..." /><div id="admOvTable"></div>';
+      body.innerHTML = (aovTab === "discounts" ? '<div id="admDiscSettings" class="p-3 rounded-2xl bg-white border border-[#E8DACA] mb-3 text-[11px]">جاري التحميل...</div>' : "") + '<input id="admOvSearch" class="w-full px-3 py-2 rounded-xl bg-white border text-xs mb-2" placeholder="بحث بالاسم أو البريد أو الجوال أو المدينة..." /><div id="admOvTable"></div>';
       document.getElementById("admOvSearch").oninput = aovTable;
       aovTable();
+      if (aovTab === "discounts") {
+        void loadDiscSettings();
+        body.onclick = async ev => {
+          const b = ev.target.closest(".adm-disc-toggle"); if (!b) return;
+          const rr = await supabaseClient.rpc("admin_set_discount_code_active", { p_id: b.dataset.id, p_active: b.dataset.a === "1" });
+          if (rr.error) return showToast("تعذر التحديث: " + rr.error.message, "error");
+          void renderAdmOv();
+        };
+      }
+    }
+    async function loadDiscSettings() {
+      const el = document.getElementById("admDiscSettings"); if (!el) return;
+      const r = await supabaseClient.rpc("admin_get_discount_settings");
+      if (r.error) { el.textContent = "تعذر تحميل إعدادات الخصم: " + r.error.message; return; }
+      const s = r.data || {};
+      el.innerHTML = '<strong class="text-sm">⚙️ إعدادات كود الخصم الذي يُمنح بعد كل حجز مكتمل</strong><p class="mt-1">الخصم يُحسب من دخل مقدمة الخدمة. الحد الأقصى 20%. الكود لمرة واحدة ولصاحبة الحجز فقط.</p><div class="flex flex-wrap items-center gap-3 mt-2"><label class="flex items-center gap-1"><input id="dsEnabled" type="checkbox" ' + (s.issue_enabled ? "checked" : "") + '> تفعيل الإصدار</label><label>النسبة % <input id="dsPercent" type="number" min="1" max="20" step="0.5" value="' + esc(String(s.issue_percent)) + '" class="w-16 px-2 py-1 rounded border"></label><label>الصلاحية (أيام) <input id="dsDays" type="number" min="1" max="365" value="' + esc(String(s.validity_days)) + '" class="w-16 px-2 py-1 rounded border"></label><button type="button" id="dsSave" class="px-3 py-1 rounded-lg bg-[#4A332A] text-white font-bold">حفظ</button></div>';
+      document.getElementById("dsSave").onclick = async () => {
+        const rr = await supabaseClient.rpc("admin_set_discount_settings", { p_enabled: document.getElementById("dsEnabled").checked, p_percent: Number(document.getElementById("dsPercent").value), p_days: Number(document.getElementById("dsDays").value) });
+        if (rr.error) return showToast("تعذر الحفظ: " + rr.error.message, "error");
+        showToast("تم حفظ إعدادات الخصم");
+      };
+    }
+    async function loadClientDiscounts() {
+      const box = document.getElementById("clientDiscountBox"); if (!box || !supabaseClient) return;
+      const r = await supabaseClient.rpc("my_discount_codes");
+      if (r.error || !Array.isArray(r.data) || !r.data.length) { box.classList.add("hidden"); return; }
+      box.classList.remove("hidden");
+      box.innerHTML = '<h2 class="text-lg font-extrabold text-[#4A332A]">🎁 أكواد الخصم الخاصة بك</h2><p class="text-xs text-[#735447] mb-2">اكتبي الكود عند حجزك القادم. الكود لمرة واحدة.</p>' + r.data.map(c => '<div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-[#E8DACA]"><span class="font-mono font-extrabold text-base" dir="ltr">' + esc(c.code) + '</span><span class="text-xs">خصم ' + esc(String(c.percent)) + '% • ينتهي ' + esc(String(c.valid_to).slice(0, 10)) + '</span></div>').join("");
     }
     async function loadAdminOverview() {
       const box = document.getElementById("adminOverviewBox"); if (!box || !supabaseClient) return;
@@ -1185,7 +1214,7 @@
       if (cust.error || !cust.data?.id) { showToast("تعذر تجهيز حساب العميلة: " + (cust.error?.message || ""), "error"); return null; }
       const when = new Date(String(fd.get("booking_date")) + "T" + String(fd.get("booking_time")));
       if (isNaN(when.getTime())) { showToast("التاريخ أو الوقت غير صالح", "error"); return null; }
-      const res = await supabaseClient.from("bookings").insert({ customer_id: cust.data.id, offer_id: service.supabase_id, scheduled_at: when.toISOString(), customer_notes: String(fd.get("notes") || ""), location_type: fd.get("location_type"), address: String(fd.get("address") || "") }).select("id, total_amount, currency, status").single();
+      const res = await supabaseClient.from("bookings").insert({ customer_id: cust.data.id, offer_id: service.supabase_id, scheduled_at: when.toISOString(), customer_notes: String(fd.get("notes") || ""), location_type: fd.get("location_type"), address: String(fd.get("address") || ""), discount_code: String(fd.get("discount_code") || "").trim().toUpperCase() || null }).select("id, total_amount, currency, status").single();
       if (res.error) { console.warn("Supabase booking failed:", res.error.message); showToast("تعذر إرسال الحجز: " + res.error.message, "error"); return null; }
       return res.data;
     }
@@ -2366,6 +2395,8 @@
             </div>
             <button data-nav="explore" class="nav-btn btn-rose px-4 py-2 rounded-xl text-sm font-bold">+ حجز خدمة جديدة</button>
           </div>
+
+          <div id="clientDiscountBox" class="glass-card p-6 rounded-3xl hidden"></div>
 
           <!-- Bookings -->
           <div class="glass-card p-6 rounded-3xl space-y-4">
@@ -3575,6 +3606,7 @@
             <option value="provider_place">في مكان مقدمة الخدمة</option>
           </select>
           <input name="address" required placeholder="المدينة والحي / العنوان" value="${user.city} - " class="w-full px-3 py-2 rounded-xl bg-white border text-sm" />
+          <input name="discount_code" dir="ltr" placeholder="كود الخصم (إن وُجد)" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" />
           <textarea name="notes" rows="2" placeholder="ملاحظات إضافية (اختياري)" class="w-full px-3 py-2 rounded-xl bg-white border text-sm"></textarea>
           <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">إرسال طلب الحجز</button>
         </form>
@@ -4240,6 +4272,7 @@
 
       if (document.getElementById("adminNotifBox")) void loadAdminNotifBox();
       if (document.getElementById("adminOverviewBox")) void loadAdminOverview();
+      if (document.getElementById("clientDiscountBox")) void loadClientDiscounts();
       // Admin actions
       document.querySelectorAll(".adm-prov-btn").forEach(b => {
         b.onclick = async () => {
