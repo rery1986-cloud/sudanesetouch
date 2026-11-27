@@ -966,6 +966,75 @@
         showToast(b.dataset.ast === "active" ? "تم نشر الإعلان" : "تم رفض الإعلان");
         await syncServerAds(); void loadAdminPendingAds(); }; });
     }
+    const AOV_ST = { pending: "قيد المراجعة", approved: "معتمد", rejected: "مرفوض", active: "نشط", completed: "مكتمل", cancelled: "ملغي", confirmed: "مؤكد", draft: "مسودة", paid: "مدفوع", suspended: "موقوف", incomplete: "غير مكتمل", published: "منشور" };
+    const aovSt = s => esc(AOV_ST[s] || s || "-");
+    const aovD = s => s ? esc(String(s).slice(0, 10)) : "-";
+    const aovN = v => Number(v || 0).toLocaleString("en-US");
+    const aovLtr = v => '<span dir="ltr">' + esc(v || "-") + '</span>';
+    const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"]];
+    const AOV_COLS = {
+      clients: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحجوزات", x => aovN(x.bookings_as_client)], ["التسجيل", x => aovD(x.created_at)], ["آخر دخول", x => aovD(x.last_sign_in_at || x.last_login_at)], ["الحالة", x => aovSt(x.account_status)]],
+      providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التقييم", x => aovN(x.rating)], ["الحجوزات", x => aovN(x.bookings_as_provider)], ["التسجيل", x => aovD(x.created_at)]],
+      merchants: [["المتجر", x => esc(x.merchant_name || x.full_name || "-")], ["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحالة", x => aovSt(x.merchant_status || x.approval_status)], ["التسجيل", x => aovD(x.created_at)]],
+      bookings: [["رقم", x => "#" + esc(x.booking_number)], ["العميلة", x => esc(x.client_name || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الخدمة", x => esc(x.service || "-")], ["الموعد", x => aovD(x.scheduled_at)], ["المبلغ", x => aovN(x.total_amount) + " " + esc(x.currency || "")], ["الحالة", x => aovSt(x.status)]],
+      revenue: [["الحجز", x => "#" + esc(x.booking_number || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الإجمالي", x => aovN(x.gross_amount) + " " + esc(x.currency || "")], ["عمولة المنصة", x => aovN(x.platform_commission)], ["الصافي", x => aovN(x.provider_net_amount)], ["الدفع", x => aovSt(x.payment_status)], ["الطريقة", x => esc(x.payment_method || "-")], ["التاريخ", x => aovD(x.paid_at || x.created_at)]],
+      ads: [["العنوان", x => esc(x.title || "-")], ["المعلن", x => esc(x.advertiser_name || "-")], ["الموضع", x => esc(x.placement || "-")], ["الميزانية", x => aovN(x.budget)], ["المشاهدات", x => aovN(x.impressions)], ["النقرات", x => aovN(x.clicks)], ["الحالة", x => aovSt(x.status)], ["التاريخ", x => aovD(x.created_at)]],
+      bazaars: [["الاسم", x => esc(x.name || "-")], ["المنظِّمة", x => esc(x.organizer_name || "-")], ["المكان", x => esc((x.venue || "-") + " / " + (x.city || "-"))], ["من", x => aovD(x.starts_at)], ["إلى", x => aovD(x.ends_at)], ["الحالة", x => aovSt(x.status)]]
+    };
+    const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}] };
+    let aovTab = "summary", aovRows = [];
+    function aovTable() {
+      const q = ((document.getElementById("admOvSearch") || {}).value || "").trim().toLowerCase();
+      const cols = AOV_COLS[aovTab];
+      const rows = aovRows.filter(x => !q || JSON.stringify(x).toLowerCase().includes(q));
+      const t = document.getElementById("admOvTable"); if (!t) return;
+      t.innerHTML = '<p class="mb-2 text-[11px]">العدد: ' + rows.length + ' من ' + aovRows.length + '</p><div class="overflow-x-auto"><table class="w-full text-[11px] text-right"><thead><tr class="bg-[#EFE0C3]">'
+        + cols.map(c => '<th class="p-2 whitespace-nowrap">' + c[0] + '</th>').join("") + '</tr></thead><tbody>'
+        + (rows.map(x => '<tr class="border-t border-[#E8DACA]">' + cols.map(c => '<td class="p-2 whitespace-nowrap">' + c[1](x) + '</td>').join("") + '</tr>').join("") || '<tr><td class="p-3" colspan="' + cols.length + '">لا توجد بيانات.</td></tr>')
+        + '</tbody></table></div>';
+    }
+    function aovSummary(o) {
+      const card = (t, v, c) => '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA] text-center"><div class="text-xl font-extrabold ' + (c || "") + '">' + v + '</div><div class="text-[11px] text-[#735447]">' + t + '</div></div>';
+      const bs = o.bookings_by_status || {}, ad = o.ads_by_status || {}, bz = o.bazaars_by_status || {};
+      const money = (o.income_by_currency || []).map(x => aovN(x.total) + " " + esc(x.currency)).join(" + ") || "0";
+      const comm = (o.commission_by_currency || []).map(x => aovN(x.commission) + " " + esc(x.currency)).join(" + ") || "0";
+      const days = o.signups_daily || [], mx = Math.max(1, ...days.map(d => Number(d.n)));
+      return '<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">'
+        + card("إجمالي المسجلين", aovN(o.users_total)) + card("العميلات", aovN(o.clients_total)) + card("مقدمات الخدمة", aovN(o.providers_total), "text-[#B3746E]") + card("التاجرات", aovN(o.merchants_total))
+        + card("متصلون الآن (آخر 15 دقيقة)", aovN(o.online_15m), "text-emerald-700") + card("نشطون آخر 24 ساعة", aovN(o.active_24h))
+        + card("تسجيلات آخر 24 ساعة", aovN(o.signups_24h)) + card("تسجيلات آخر 7 أيام", aovN(o.signups_7d)) + card("تسجيلات آخر 30 يوماً", aovN(o.signups_30d))
+        + card("إجمالي الحجوزات", aovN(o.bookings_total)) + card("حجوزات مكتملة", aovN(bs.completed), "text-emerald-700") + card("حجوزات معلقة", aovN(bs.pending), "text-amber-700")
+        + card("حجوزات ملغاة", aovN(bs.cancelled), "text-rose-700") + card("مقدمات بانتظار الموافقة", aovN(o.providers_pending), "text-amber-700") + card("تاجرات بانتظار الموافقة", aovN(o.merchants_pending), "text-amber-700")
+        + card("إعلانات نشطة", aovN(ad.active)) + card("إعلانات بانتظار الموافقة", aovN(ad.pending), "text-amber-700") + card("بازارات", aovN(Object.values(bz).reduce((a, b) => a + Number(b), 0)))
+        + '</div><div class="grid sm:grid-cols-2 gap-2.5 mt-3">'
+        + '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA]"><strong class="text-sm">💰 الدخل (قيمة الحجوزات المكتملة)</strong><p class="text-lg font-extrabold mt-1">' + money + '</p><p class="text-[11px] mt-1">عمولة المنصة المسجلة: ' + comm + ' (المنصة لا تأخذ عمولة حالياً)</p></div>'
+        + '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA]"><strong class="text-sm">📌 مصدر الدخل حسب الخدمة</strong>' + ((o.income_by_category || []).map(x => '<div class="flex justify-between text-[11px] py-1 border-t border-[#E8DACA]"><span>' + esc(x.category) + ' (' + aovN(x.count) + ')</span><span>' + aovN(x.total) + ' ' + esc(x.currency) + '</span></div>').join("") || '<p class="text-[11px] mt-1">لا توجد حجوزات مكتملة بعد.</p>') + '</div></div>'
+        + '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA] mt-3"><strong class="text-sm">📈 التسجيلات آخر 14 يوماً</strong><div class="flex items-end gap-1 h-24 mt-2">' + (days.map(d => '<div class="flex-1 text-center text-[9px]"><div class="bg-[#B3746E] rounded-t" style="height:' + Math.max(4, Math.round(70 * Number(d.n) / mx)) + 'px"></div>' + aovN(d.n) + '<br>' + esc(String(d.day).slice(5)) + '</div>').join("") || '<p class="text-[11px]">لا توجد تسجيلات.</p>') + '</div></div>'
+        + '<p class="mt-2 text-[10px]">ملاحظة: "متصلون الآن" تقدير يعتمد على آخر تسجيل دخول خلال 15 دقيقة، ولا يعكس الزوار غير المسجلين.</p>';
+    }
+    async function renderAdmOv() {
+      const body = document.getElementById("admOvBody"); if (!body) return;
+      document.querySelectorAll(".adm-ov-tab").forEach(b => { b.className = "adm-ov-tab px-3 py-1.5 rounded-xl text-[11px] font-bold " + (b.dataset.t === aovTab ? "bg-[#4A332A] text-white" : "bg-[#EFE0C3] text-[#4A332A]"); });
+      body.textContent = "جاري التحميل...";
+      if (aovTab === "summary") {
+        const r = await supabaseClient.rpc("admin_overview");
+        if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
+        body.innerHTML = aovSummary(r.data || {}); return;
+      }
+      const spec = AOV_RPC[aovTab];
+      const r = await supabaseClient.rpc(spec[0], spec[1]);
+      if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
+      aovRows = r.data || [];
+      body.innerHTML = '<input id="admOvSearch" class="w-full px-3 py-2 rounded-xl bg-white border text-xs mb-2" placeholder="بحث بالاسم أو البريد أو الجوال أو المدينة..." /><div id="admOvTable"></div>';
+      document.getElementById("admOvSearch").oninput = aovTable;
+      aovTable();
+    }
+    async function loadAdminOverview() {
+      const box = document.getElementById("adminOverviewBox"); if (!box || !supabaseClient) return;
+      box.innerHTML = '<div class="flex flex-wrap gap-1.5 mb-3">' + AOV_TABS.map(t => '<button type="button" data-t="' + t[0] + '" class="adm-ov-tab"></button>').join("") + '</div><div id="admOvBody"></div>';
+      box.querySelectorAll(".adm-ov-tab").forEach(b => { b.textContent = AOV_TABS.find(t => t[0] === b.dataset.t)[1]; b.onclick = () => { aovTab = b.dataset.t; void renderAdmOv(); }; });
+      await renderAdmOv();
+    }
     async function loadAdminNotifBox() {
       const box = document.getElementById("adminNotifBox");
       if (!box || !supabaseClient) return;
@@ -2799,6 +2868,8 @@
             <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold text-rose-700">${cancelledCount}</div><div class="text-xs text-[#735447]">حجوزات ملغاة</div></div>
           </div>
 
+          <div id="adminOverviewBox" class="glass-card p-5 rounded-3xl border border-[#C89D54]/50 text-xs text-[#735447]">جاري تحميل لوحة الإحصائيات...</div>
+
           <!-- Edit My Profile & Password Confirmation (Super Admin & Moderators) -->
           <div class="glass-card p-6 rounded-3xl space-y-4 border border-[#C89D54]/50">
             <div class="flex flex-wrap items-center justify-between gap-2">
@@ -4168,6 +4239,7 @@
       });
 
       if (document.getElementById("adminNotifBox")) void loadAdminNotifBox();
+      if (document.getElementById("adminOverviewBox")) void loadAdminOverview();
       // Admin actions
       document.querySelectorAll(".adm-prov-btn").forEach(b => {
         b.onclick = async () => {
