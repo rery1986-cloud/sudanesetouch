@@ -1758,6 +1758,41 @@
       return renderAdminDashboard(user);
     }
 
+    function renderAccountSummary(user) {
+      const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "مديرة النظام" };
+      const roleName = roleNames[user.role] || user.role || "مستخدم";
+      const countryName = user.country ? getCountryObj(user.country).name : "غير محددة";
+      const location = [countryName, user.city].filter(Boolean).join(" • ") || "غير محدد";
+      const extraLabel = user.role === "provider" ? "التخصص" : user.role === "merchant" ? "المتجر / البازار" : "نوع الحساب";
+      const extraValue = user.role === "provider" ? (user.specialty || "لم يُحدد بعد") : user.role === "merchant" ? (user.store_name || "لم يُحدد بعد") : "حساب عميلة";
+      const status = user.is_active === false
+        ? { text: "الحساب معطل", cls: "bg-rose-100 text-rose-800 border-rose-200" }
+        : { text: "الحساب نشط", cls: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+      return `
+        <div class="glass-card p-5 rounded-3xl border border-[#E8DACA] bg-gradient-to-l from-[#FFF9F1] to-white">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <div class="w-14 h-14 rounded-2xl bg-[#6D1A36] text-white flex items-center justify-center text-2xl font-extrabold">${esc((user.full_name || "م").trim().charAt(0) || "م")}</div>
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <h2 class="text-lg font-extrabold text-[#4A332A]">بيانات حسابك</h2>
+                  <span class="px-2.5 py-1 rounded-full border text-[11px] font-bold ${status.cls}">${status.text}</span>
+                </div>
+                <p class="text-sm font-bold text-[#735447] mt-1">${esc(user.full_name || "مستخدم لمسة")} • ${esc(roleName)}</p>
+              </div>
+            </div>
+            <span class="px-3 py-1.5 rounded-full bg-[#EFE0C3] text-[#4A332A] text-[11px] font-bold">${user.is_demo ? "حساب تجريبي" : "حساب مرتبط بـ Supabase"}</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-5 text-xs">
+            <div class="p-3 rounded-2xl bg-white border border-[#E8DACA]"><div class="text-[#735447] mb-1">البريد الإلكتروني</div><div class="font-bold text-[#4A332A] break-all" dir="ltr">${esc(user.email || "غير متوفر")}</div></div>
+            <div class="p-3 rounded-2xl bg-white border border-[#E8DACA]"><div class="text-[#735447] mb-1">رقم الجوال</div><div class="font-bold text-[#4A332A]" dir="ltr">${esc(user.phone_private || "غير مضاف")}</div></div>
+            <div class="p-3 rounded-2xl bg-white border border-[#E8DACA]"><div class="text-[#735447] mb-1">الموقع</div><div class="font-bold text-[#4A332A]">📍 ${esc(location)}</div></div>
+            <div class="p-3 rounded-2xl bg-white border border-[#E8DACA]"><div class="text-[#735447] mb-1">${extraLabel}</div><div class="font-bold text-[#4A332A]">${esc(extraValue)}</div></div>
+          </div>
+          ${user.district ? `<p class="mt-3 text-xs text-[#735447]">الحي: <strong class="text-[#4A332A]">${esc(user.district)}</strong></p>` : ""}
+        </div>
+      `;
+    }
     function renderClientDashboard(user) {
       const myBookings = db.bookings.filter(b => b.client_id === user.id).slice().reverse();
       const myFavs = db.providerProfiles.filter(p => db.favorites.includes(p.id));
@@ -1765,6 +1800,7 @@
 
       return `
         <section class="max-w-6xl mx-auto px-4 py-8 space-y-6">
+          ${renderAccountSummary(user)}
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div>
               <h1 class="text-2xl font-extrabold text-[#4A332A]">مرحباً ${user.full_name} 🌷</h1>
@@ -1892,6 +1928,7 @@
 
       return `
         <section class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+          ${renderAccountSummary(user)}
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div class="space-y-1">
               <div class="flex items-center gap-2">
@@ -2129,6 +2166,7 @@
       const myAds = getVisualAds().filter(ad => Number(ad.owner_user_id) === Number(user.id));
       return `
         <section class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+          ${renderAccountSummary(user)}
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div>
               <div class="flex flex-wrap items-center gap-2 mb-1">
