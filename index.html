@@ -1351,7 +1351,7 @@ async function showAdminUserDetail(uid) {
           const own = d.is_mine || isAdm;
           return '<div class="p-3 rounded-2xl bg-white border ' + (d.status === "escalated" ? "border-rose-300" : "border-[#E8DACA]") + ' text-[11px] space-y-1.5 cursor-pointer" data-did="' + esc(d.id) + '" data-hasrev="' + (d.review_id ? "1" : "") + '">'
             + '<div class="flex flex-wrap items-center justify-between gap-2"><span class="font-bold text-[#4A332A]">' + esc(DSP_CAT[d.category] || d.category) + " • مقدمة الخدمة: " + esc(d.provider_name || "-") + " • " + esc(String(d.created_at).slice(0, 10)) + '</span><span class="px-2 py-0.5 rounded-full font-bold ' + st[1] + '">' + st[0] + "</span></div>"
-            + "<div>فتحها (" + (d.opener_role === "client" ? "العميلة" : "مقدمة الخدمة") + "): " + esc(d.opener_name || "-") + " • ضد: " + esc(d.against_name || "-") + " • حالة الحجز: " + esc(d.booking_status || "-") + " • المبلغ: " + esc(String(Number(d.total_amount || 0))) + " " + esc(d.currency || "") + "</div>"
+            + "<div>فتحها (" + (d.opener_role === "client" ? "العميلة" : "مقدمة الخدمة") + "): " + esc(d.opener_name || "-") + " • ضد: " + esc(d.against_name || "-") + " • حالة الحجز: " + esc(d.booking_status || "-") + (isModUser() ? "" : " • المبلغ: " + esc(String(Number(d.total_amount || 0))) + " " + esc(d.currency || "")) + "</div>"
             + '<p class="text-[#4A332A] bg-[#FBF7F2] rounded-lg p-2">' + esc(d.details) + "</p><div class=\"text-[10px] text-[#B3746E]\">اضغطي على البطاقة لعرض التفاصيل الكاملة والمحادثة ثم اتخاذ الإجراء</div>"
             + (d.review_id ? '<div class="text-[#735447]">التقييم المرتبط: ' + esc(String(d.review_rating)) + "★ «" + esc(d.review_comment || "") + "» (" + (d.review_status === "hidden" ? "مخفي" : "منشور") + ")" + (done ? "" : " 🔒 مقفل حتى حسم النزاع") + "</div>" : "")
             + "<div>المشرفة المسؤولة: <b>" + esc(d.assigned_name || "لم تُسند بعد") + "</b></div>"
@@ -1395,7 +1395,7 @@ async function showDisputeDetail(id, box) {
     + row("فتحها", esc((d.opener_role === "client" ? "العميلة" : "مقدمة الخدمة") + ": " + (d.opener_name || "-"))) + row("ضد", esc(d.against_name || "-"))
     + row("العميلة", esc(c.customer_name || "-")) + row("مقدمة الخدمة", esc(c.provider_name || d.provider_name || "-"))
     + row("الخدمة", esc(c.service || "-")) + row("موعد الحجز", dt(c.scheduled_at || d.scheduled_at))
-    + row("المكان", esc((c.location_type || "-") + (c.address ? " / " + c.address : ""))) + row("المبلغ", esc(String(Number(d.total_amount || 0)) + " " + (d.currency || "")))
+    + row("المكان", esc((c.location_type || "-") + (c.address ? " / " + c.address : ""))) + (isAdm ? row("المبلغ", esc(String(Number(d.total_amount || 0)) + " " + (d.currency || ""))) : "")
     + row("حالة الحجز", aovSt(d.booking_status)) + row("تاريخ فتح النزاع", dt(d.created_at))
     + (c.customer_notes ? row("ملاحظات العميلة على الحجز", esc(c.customer_notes)) : "") + (c.provider_notes ? row("ملاحظات مقدمة الخدمة", esc(c.provider_notes)) : "")
     + (d.review_id ? row("التقييم المرتبط", esc(String(d.review_rating)) + "★ «" + esc(d.review_comment || "") + "»") : "")
@@ -3603,7 +3603,7 @@ async function showDisputeDetail(id, box) {
           ` : ""}
 
           <!-- Categories + Reports + Offers -->
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" style="${isSuperAdmin ? "" : "display:none"}">
             <div class="glass-card p-6 rounded-3xl space-y-4">
               <h2 class="text-lg font-bold">إدارة التصنيفات والخدمات</h2>
               <form id="adminAddCatForm" class="flex gap-2">
@@ -3643,7 +3643,7 @@ async function showDisputeDetail(id, box) {
           </div>
 
           <!-- Promotions & Monetization -->
-          <div class="glass-card p-6 rounded-3xl space-y-4">
+          <div class="glass-card p-6 rounded-3xl space-y-4" style="${isSuperAdmin ? "" : "display:none"}">
             <h2 class="text-lg font-bold">إدارة العروض والإعلانات ونموذج الدخل</h2>
             <div class="overflow-x-auto">
               <table class="w-full text-xs text-right border-collapse mb-3">
