@@ -801,8 +801,8 @@
           <section class="glass-card w-full max-w-md rounded-3xl p-6 sm:p-8 space-y-4" aria-labelledby="adminRecoveryTitle">
             <div class="text-center">
               <div class="text-4xl mb-2" aria-hidden="true">🔐</div>
-              <h1 id="adminRecoveryTitle" class="text-2xl font-extrabold text-[#4A332A]">تهيئة بيانات مديرة النظام</h1>
-              <p class="text-sm text-[#735447] mt-2">تحققي من البريد عبر الرابط، ثم أدخلي بياناتكِ وكلمة مرور جديدة لحساب مديرة النظام.</p>
+              <h1 id="adminRecoveryTitle" class="text-2xl font-extrabold text-[#4A332A]">تهيئة بيانات الإدارة</h1>
+              <p class="text-sm text-[#735447] mt-2">تحققي من البريد عبر الرابط، ثم أدخلي بياناتكِ وكلمة مرور جديدة لحساب الإدارة.</p>
             </div>
             <form id="adminPasswordRecoveryForm" class="space-y-3">
               <div>
@@ -870,11 +870,11 @@
           }
           if (!await activateVerifiedAdmin(data.user)) {
             adminPasswordRecoveryPending = false;
-            return showToast("تم تحديث كلمة المرور، لكن تعذر التحقق من صلاحية المديرة. سجّلي الدخول مجدداً.", "error");
+            return showToast("تم تحديث كلمة المرور، لكن تعذر التحقق من صلاحية الإدارة. سجّلي الدخول مجدداً.", "error");
           }
           adminPasswordRecoveryPending = false;
           root.classList.add("hidden");
-          showToast("تم حفظ بياناتكِ وكلمة المرور، وبقيت جلسة مديرة النظام مفتوحة.");
+          showToast("تم حفظ بياناتكِ وكلمة المرور، وبقيت جلسة الإدارة مفتوحة.");
         } catch (error) {
           console.error("Administrator password recovery request failed:", error);
           showToast("تعذر الاتصال بخدمة المصادقة. تحققي من الاتصال ثم حاولي مجدداً.", "error");
@@ -893,7 +893,7 @@
         .maybeSingle();
       if (error) {
         console.warn("Admin verification failed:", error.message);
-        showToast("تعذر التحقق من صلاحيات المدير. يرجى المحاولة لاحقاً.", "error");
+        showToast("تعذر التحقق من صلاحيات الإدارة. يرجى المحاولة لاحقاً.", "error");
         return false;
       }
       if (!adminRecord) return false;
@@ -903,7 +903,7 @@
       let adminUser = db.users.find(user => user.email?.toLowerCase() === ADMIN_EMAIL);
       if (!adminUser) {
         const nextId = db.users.reduce((max, user) => Math.max(max, Number(user.id) || 0), 0) + 1;
-        adminUser = { id: nextId, full_name: authUser.user_metadata?.full_name || "مدير النظام", email: ADMIN_EMAIL, password: null, role: "admin", city: "الرياض", is_active: true, is_demo: false };
+        adminUser = { id: nextId, full_name: authUser.user_metadata?.full_name || "الإدارة", email: ADMIN_EMAIL, password: null, role: "admin", city: "الرياض", is_active: true, is_demo: false };
         db.users.push(adminUser);
       }
       Object.assign(adminUser, { role: "admin", password: null, is_active: true, is_demo: false, auth_user_id: authUser.id });
@@ -918,7 +918,7 @@
       closeModal();
       renderHeader();
       renderMain();
-      showToast(`مرحباً بك يا ${adminUser.full_name}، تم التحقق من صلاحية مدير النظام.`);
+      showToast(`مرحباً بك يا ${adminUser.full_name}، تم التحقق من صلاحية الإدارة.`);
       return true;
     }
 
@@ -986,7 +986,7 @@
       }
       if (appUser.role !== selectedRole) {
         await supabaseClient.auth.signOut();
-        return { error: new Error(`هذا الحساب مسجل كـ «${({ admin: "مديرة النظام", moderator: "مشرفة", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" }[appUser.role] || appUser.role)}»`) };
+        return { error: new Error(`هذا الحساب مسجل كـ «${({ admin: "الإدارة", moderator: "مشرفة", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" }[appUser.role] || appUser.role)}»`) };
       }
       return { data: appUser };
     }
@@ -1158,7 +1158,7 @@
         dashBtn.classList.remove("hidden");
         mobDashBtn.classList.remove("hidden");
         const unreadNotifs = db.notifications.filter(n => n.user_id === user.id && !n.is_read).length;
-        const roleLabel = ({ admin: "مديرة النظام", moderator: "مشرفة", provider: "مقدمة خدمة", merchant: "تاجرة" })[user.role] || "عميلة";
+        const roleLabel = ({ admin: "الإدارة", moderator: "مشرفة", provider: "مقدمة خدمة", merchant: "تاجرة" })[user.role] || "عميلة";
         actions.innerHTML = `
           <button id="notifBtn" class="relative p-2 rounded-xl bg-[#F3EAE0] hover:bg-[#EFE0C3] transition" title="الإشعارات">
             🔔
@@ -1475,7 +1475,7 @@
       const ad = getVisualAds().find(x => String(x.id) === String(adId));
       const user = currentUser();
       if (!ad || !canEditAd(ad, user)) {
-        showToast("صلاحية تعديل صورة وتفاصيل البازار مخصصة لمديرة النظام وصاحبة الإعلان فقط.", "error");
+        showToast("صلاحية تعديل صورة وتفاصيل البازار مخصصة للإدارة وصاحبة الإعلان فقط.", "error");
         return;
       }
       openModal(`
@@ -1683,7 +1683,7 @@
                   </div>
                 `).join("")}
               </div>
-            ` : `<div class="glass-card p-6 rounded-2xl text-center text-sm text-[#735447]">لم تُضف منتجات تفصيلية بعد — يمكن لمديرة النظام أو التاجرة صاحبة الإعلان إضافتها من لوحة التحكم.</div>`}
+            ` : `<div class="glass-card p-6 rounded-2xl text-center text-sm text-[#735447]">لم تُضف منتجات تفصيلية بعد — يمكن للإدارة أو التاجرة صاحبة الإعلان إضافتها من لوحة التحكم.</div>`}
           </div>
         </section>
       `;
@@ -1812,7 +1812,7 @@
     }
 
     function renderAccountSummary(user) {
-      const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "مديرة النظام" };
+      const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "الإدارة" };
       const roleName = roleNames[user.role] || user.role || "مستخدم";
       const countryName = user.country ? getCountryObj(user.country).name : "غير محددة";
       const location = [countryName, user.city].filter(Boolean).join(" • ") || "غير محدد";
@@ -2401,7 +2401,7 @@
           <div class="glass-card p-6 rounded-3xl flex flex-wrap items-center justify-between gap-4">
             <div>
               <div class="flex flex-wrap items-center gap-2 mb-1">
-                <h1 class="text-2xl font-extrabold text-[#4A332A]">${isSuperAdmin ? "لوحة تحكم مديرة النظام" : "لوحة تحكم الأدمن (المشرفة)"}</h1>
+                <h1 class="text-2xl font-extrabold text-[#4A332A]">${isSuperAdmin ? "لوحة تحكم الإدارة" : "لوحة تحكم الأدمن (المشرفة)"}</h1>
                 <span class="px-3 py-1 rounded-full text-xs font-extrabold ${isSuperAdmin ? "bg-[#6D1A36] text-[#EFE0C3]" : "bg-[#EFE0C3] text-[#4A332A] border border-[#C89D54]"}">
                   ${isSuperAdmin ? "👑 صلاحيات كاملة" : "🛡️ مشرفة إقليمية • " + esc(me.country ? getCountryObj(me.country).name : "الدولة غير محددة") + " • " + esc(me.region || getRegionByCity(me.city) || "المنطقة غير محددة") + " • " + esc(me.city || "عام")}
                 </span>
@@ -2409,7 +2409,7 @@
               <p class="text-xs text-[#735447]">
                 ${isSuperAdmin
                   ? "التحكم الكامل بالمنصة، تعيين فريق الأدمنز بصلاحيات محددة، إدارة مقدمات الخدمة، الإعلانات، ونموذج الدخل"
-                  : "صلاحياتكِ الممنوحة من مديرة النظام: " + (myPerms.map(p => PERM_LABELS[p] || p).join(" • ") || "عرض فقط")}
+                  : "صلاحياتكِ الممنوحة من الإدارة: " + (myPerms.map(p => PERM_LABELS[p] || p).join(" • ") || "عرض فقط")}
               </p>
             </div>
           </div>
@@ -2429,7 +2429,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 class="text-xl font-extrabold text-[#4A332A]">⚙️ تعديل بياناتي وتأكيد الهوية</h2>
-                <p class="text-xs text-[#735447]">${isSuperAdmin ? "عدّلي بياناتكِ وكلمة مرور مديرة النظام؛ يلزم تأكيد كلمة المرور الحالية قبل الحفظ. يمكنكِ استعادتها من شاشة الدخول إذا تعذّر تذكرها." : "عدّلي بياناتكِ الشخصية وكلمة المرور؛ يلزم إدخال كلمة المرور الحالية لتأكيد هويتكِ."}</p>
+                <p class="text-xs text-[#735447]">${isSuperAdmin ? "عدّلي بياناتكِ وكلمة مرور الإدارة؛ يلزم تأكيد كلمة المرور الحالية قبل الحفظ. يمكنكِ استعادتها من شاشة الدخول إذا تعذّر تذكرها." : "عدّلي بياناتكِ الشخصية وكلمة المرور؛ يلزم إدخال كلمة المرور الحالية لتأكيد هويتكِ."}</p>
               </div>
               <span class="px-3 py-1 rounded-full bg-[#F3EAE0] text-[#4A332A] text-xs font-bold">📧 ${esc(me.email)}</span>
             </div>
@@ -2479,8 +2479,8 @@
           <div class="glass-card p-6 rounded-3xl space-y-4 border-2 border-[#C89D54]/50">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 class="text-xl font-extrabold text-[#4A332A]">🛡️ إدارة فريق الأدمنز / المشرفات (صلاحية حصرية لمديرة النظام)</h2>
-                <p class="text-xs text-[#735447]">مديرة النظام هي الوحيدة التي تملك صلاحية إضافة وحذف الأدمنز بإيميلاتهن وأرقام هواتفهن، أو إرسال رابط دعوة مباشر لهن للانضمام.</p>
+                <h2 class="text-xl font-extrabold text-[#4A332A]">🛡️ إدارة فريق الأدمنز / المشرفات (صلاحية حصرية للإدارة)</h2>
+                <p class="text-xs text-[#735447]">الإدارة هي الوحيدة التي تملك صلاحية إضافة وحذف الأدمنز بإيميلاتهن وأرقام هواتفهن، أو إرسال رابط دعوة مباشر لهن للانضمام.</p>
               </div>
             </div>
 
@@ -2818,7 +2818,7 @@
                         </div>
                       </div>
                       <div class="flex items-center gap-1.5 shrink-0">
-                        ${canEditAd(ad, me) ? `<button data-edit-ad-modal="${ad.id}" class="px-2.5 py-1 rounded-lg bg-[#C89D54] text-white font-bold">✏️ تعديل الصورة والتفاصيل</button>` : `<span class="px-2 py-1 rounded-lg bg-stone-100 text-stone-500 text-[10px] font-bold">عرض فقط (تعديل التاجرة/المديرة)</span>`}
+                        ${canEditAd(ad, me) ? `<button data-edit-ad-modal="${ad.id}" class="px-2.5 py-1 rounded-lg bg-[#C89D54] text-white font-bold">✏️ تعديل الصورة والتفاصيل</button>` : `<span class="px-2 py-1 rounded-lg bg-stone-100 text-stone-500 text-[10px] font-bold">عرض فقط (تعديل التاجرة/الإدارة)</span>`}
                         <button data-toggle-vis-ad="${ad.id}" class="toggle-vis-ad-btn px-2.5 py-1 rounded-lg font-bold ${ad.is_active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}">${ad.is_active !== false ? 'نشط ✓' : 'مخفي'}</button>
                         <button data-del-vis-ad="${ad.id}" class="del-vis-ad-btn px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 font-bold">حذف</button>
                       </div>
@@ -2893,10 +2893,10 @@
         { id: "client", label: "عميلة", icon: "👩", hint: "للعميلات اللواتي يحجزن خدمات التجميل." },
         { id: "provider", label: "خبيرة تجميل", icon: "💄", hint: "لمقدمات الخدمة: الحنة، المكياج، الشعر، الرموش..." },
         { id: "merchant", label: "تاجرة / بازار", icon: "🛍️", hint: "لصاحبات المتاجر والبازارات: بخور، ثياب، إكسسوارات..." },
-        { id: "admin", label: "مديرة النظام", icon: "👑", hint: "مديرة النظام والمشرفات المعتمدات." },
+        { id: "admin", label: "الإدارة", icon: "👑", hint: "الإدارة والمشرفات المعتمدات." },
         { id: "moderator", label: "مشرفة إقليمية", icon: "🛡️", hint: "مشرفة محددة بالدولة والمنطقة الممنوحة لها." }
       ];
-      const ROLE_NAMES = { admin: "مديرة النظام", moderator: "مشرفة إقليمية", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" };
+      const ROLE_NAMES = { admin: "الإدارة", moderator: "مشرفة إقليمية", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" };
       let selectedRole = LOGIN_ROLES.some(r => r.id === presetRole) ? presetRole : "client";
 
       openModal(`
@@ -2910,7 +2910,7 @@
           <button type="submit" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">دخول</button>
           <button type="button" id="adminForgotPasswordBtn" class="hidden w-full text-xs font-bold text-[#A96B65] hover:underline">نسيت كلمة المرور؟ إرسال رابط إعادة التعيين</button>
           <button type="button" id="adminResendConfirmationBtn" class="hidden w-full text-xs font-bold text-[#735447] hover:underline">إعادة إرسال رسالة تأكيد البريد الإلكتروني</button>
-          <a id="adminCredentialsLink" href="admin-credentials.html" target="_blank" rel="noopener noreferrer" class="hidden block w-full rounded-xl border border-[#C89D54]/60 bg-[#EFE0C3]/60 px-3 py-2.5 text-center text-xs font-extrabold text-[#4A332A] hover:bg-[#EFE0C3]">تهيئة حساب مديرة النظام بالبريد</a>
+          <a id="adminCredentialsLink" href="admin-credentials.html" target="_blank" rel="noopener noreferrer" class="hidden block w-full rounded-xl border border-[#C89D54]/60 bg-[#EFE0C3]/60 px-3 py-2.5 text-center text-xs font-extrabold text-[#4A332A] hover:bg-[#EFE0C3]">تهيئة حساب الإدارة بالبريد</a>
         </form>
         <button type="button" id="loginToRegisterBtn" class="mt-3 w-full text-xs font-bold text-[#A96B65] hover:underline"></button>
       `);
@@ -4033,7 +4033,7 @@
           }
           const newEmail = document.getElementById("myProfEmail").value.trim().toLowerCase();
           if (isSuperAdmin && newEmail !== ADMIN_EMAIL) {
-            return showToast("لا يمكن تغيير بريد مديرة النظام من هذه الصفحة", "error");
+            return showToast("لا يمكن تغيير بريد الإدارة من هذه الصفحة", "error");
           }
           if (db.users.some(u => u.id !== me.id && u.email.toLowerCase() === newEmail)) {
             showToast("هذا البريد الإلكتروني مستخدم لحساب آخر", "error");
@@ -4057,7 +4057,7 @@
             const { data: { user: authUser }, error: authUserError } = await supabaseClient.auth.getUser();
             if (authUserError || !authUser) {
               console.error("Administrator profile verification failed:", authUserError?.message || "No authenticated user");
-              return showToast("تعذر التحقق من جلسة مديرة النظام. سجّلي الدخول مجدداً.", "error");
+              return showToast("تعذر التحقق من جلسة الإدارة. سجّلي الدخول مجدداً.", "error");
             }
             const updates = {
               data: { ...authUser.user_metadata, full_name: newFullName, phone: newPhone }
@@ -4066,7 +4066,7 @@
             const { error } = await supabaseClient.auth.updateUser(updates);
             if (error) {
               console.error("Administrator profile update failed:", error.message);
-              return showToast("تعذر حفظ بيانات مديرة النظام. حاولي مجدداً.", "error");
+              return showToast("تعذر حفظ بيانات الإدارة. حاولي مجدداً.", "error");
             }
             if (newPwd) me.password = null;
           } else if (newPwd) {
@@ -4100,7 +4100,7 @@
       if (addModForm) {
         addModForm.onsubmit = async e => {
           e.preventDefault(); const me = currentUser();
-          if (!me || me.role !== "admin") return showToast("صلاحية إضافة الأدمنز حصرية لمديرة النظام فقط", "error");
+          if (!me || me.role !== "admin") return showToast("صلاحية إضافة الأدمنز حصرية للإدارة فقط", "error");
           if (!supabaseClient) return showToast("خدمة Supabase غير متاحة حالياً", "error");
           const email = document.getElementById("modEmailInput").value.trim().toLowerCase();
           const perms = Array.from(addModForm.querySelectorAll('input[name="mod_perm"]:checked')).map(c => c.value);
@@ -4142,7 +4142,7 @@
         b.onclick = () => {
           const me = currentUser();
           if (!me || me.role !== "admin") {
-            showToast("صلاحية حذف الأدمنز حصرية لمديرة النظام فقط", "error");
+            showToast("صلاحية حذف الأدمنز حصرية للإدارة فقط", "error");
             return;
           }
           const uid = Number(b.dataset.delMod);
