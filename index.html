@@ -1338,32 +1338,37 @@ async function showAdminUserDetail(uid) {
         return '<div class="p-3 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs space-y-1"><div class="flex items-center justify-between"><span class="font-bold text-[#4A332A]">' + esc(DSP_CAT[d.category] || d.category) + (d.mine ? " (فتحتِه)" : " (مفتوح ضدك)") + '</span><span class="px-2 py-0.5 rounded-full font-bold ' + st[1] + '">' + st[0] + "</span></div>"
           + (d.resolution ? '<p class="text-emerald-800 font-bold">قرار الحسم: ' + esc(d.resolution) + "</p>" : "") + "</div>"; }).join("");
     }
+    let dspRows = [], dspMods = [];
     async function renderDisputesStaff(box) {
       if (!box || !supabaseClient) return;
       const me = currentUser(), isAdm = !!me && me.role === "admin";
       const [r, m] = await Promise.all([supabaseClient.rpc("staff_list_disputes"), isAdm ? supabaseClient.rpc("admin_list_moderators") : Promise.resolve({ data: [] })]);
       if (r.error) { box.textContent = "تعذر التحميل: " + r.error.message; return; }
-      const list = r.data || [], mods = m.data || [];
+      const list = r.data || [], mods = m.data || []; dspRows = list; dspMods = mods;
       const openN = list.filter(d => d.status !== "resolved").length;
       box.innerHTML = '<h2 class="text-lg font-bold text-[#4A332A] mb-2">⚖️ النزاعات (' + openN + " نشط" + (isAdm ? "" : " عندك") + ')</h2><div class="space-y-2">'
         + (list.map(d => { const st = DSP_ST[d.status] || ["-", ""]; const done = d.status === "resolved";
           const own = d.is_mine || isAdm;
-          return '<div class="p-3 rounded-2xl bg-white border ' + (d.status === "escalated" ? "border-rose-300" : "border-[#E8DACA]") + ' text-[11px] space-y-1.5" data-did="' + esc(d.id) + '" data-hasrev="' + (d.review_id ? "1" : "") + '">'
+          return '<div class="p-3 rounded-2xl bg-white border ' + (d.status === "escalated" ? "border-rose-300" : "border-[#E8DACA]") + ' text-[11px] space-y-1.5 cursor-pointer" data-did="' + esc(d.id) + '" data-hasrev="' + (d.review_id ? "1" : "") + '">'
             + '<div class="flex flex-wrap items-center justify-between gap-2"><span class="font-bold text-[#4A332A]">' + esc(DSP_CAT[d.category] || d.category) + " • مقدمة الخدمة: " + esc(d.provider_name || "-") + " • " + esc(String(d.created_at).slice(0, 10)) + '</span><span class="px-2 py-0.5 rounded-full font-bold ' + st[1] + '">' + st[0] + "</span></div>"
             + "<div>فتحها (" + (d.opener_role === "client" ? "العميلة" : "مقدمة الخدمة") + "): " + esc(d.opener_name || "-") + " • ضد: " + esc(d.against_name || "-") + " • حالة الحجز: " + esc(d.booking_status || "-") + " • المبلغ: " + esc(String(Number(d.total_amount || 0))) + " " + esc(d.currency || "") + "</div>"
-            + '<p class="text-[#4A332A] bg-[#FBF7F2] rounded-lg p-2">' + esc(d.details) + "</p>"
+            + '<p class="text-[#4A332A] bg-[#FBF7F2] rounded-lg p-2">' + esc(d.details) + "</p><div class=\"text-[10px] text-[#B3746E]\">اضغطي على البطاقة لعرض التفاصيل الكاملة والمحادثة ثم اتخاذ الإجراء</div>"
             + (d.review_id ? '<div class="text-[#735447]">التقييم المرتبط: ' + esc(String(d.review_rating)) + "★ «" + esc(d.review_comment || "") + "» (" + (d.review_status === "hidden" ? "مخفي" : "منشور") + ")" + (done ? "" : " 🔒 مقفل حتى حسم النزاع") + "</div>" : "")
             + "<div>المشرفة المسؤولة: <b>" + esc(d.assigned_name || "لم تُسند بعد") + "</b></div>"
             + (d.escalation_note ? '<div class="text-rose-800">سبب التصعيد: ' + esc(d.escalation_note) + "</div>" : "")
             + (d.resolution ? '<div class="text-emerald-800 font-bold">القرار: ' + esc(d.resolution) + "</div>" : "")
-            + (done ? "" : '<div class="flex flex-wrap items-center gap-1.5 pt-1">'
+            + (true ? "" : '<div class="flex flex-wrap items-center gap-1.5 pt-1">'
               + (!d.assigned_to ? '<button type="button" class="dsp-take px-2 py-1 rounded bg-blue-700 text-white font-bold">استلام النزاع</button>' : "")
               + (isAdm ? '<select class="dsp-mod px-2 py-1 rounded border"><option value="">اختاري مشرفة...</option>' + mods.map(x => '<option value="' + esc(x.id) + '">' + esc(x.full_name || x.email) + " (" + Number(x.active_disputes) + ")</option>").join("") + '</select><button type="button" class="dsp-assign px-2 py-1 rounded bg-[#4A332A] text-white font-bold">إسناد</button>' : "")
               + (!isAdm && d.is_mine && d.status === "in_review" ? '<button type="button" class="dsp-esc px-2 py-1 rounded bg-rose-700 text-white font-bold">تصعيد للإدارة</button>' : "")
               + ((isAdm || (d.is_mine && d.status === "in_review")) ? '<button type="button" class="dsp-resolve px-2 py-1 rounded bg-emerald-700 text-white font-bold">حسم النزاع</button>' : "") + "</div>")
             + "</div>"; }).join("") || '<p class="text-[#735447]">لا توجد نزاعات حالياً.</p>') + "</div>";
-      box.onclick = async ev => {
+      box.onclick = ev => dspHandle(ev, box);
+    }
+    async function dspHandle(ev, box) {
+      {
         const t = ev.target; const card = t.closest("[data-did]"); if (!card) return; const id = card.dataset.did;
+        if (!t.closest("button,select,input,textarea")) { if (card.id !== "dspModal") void showDisputeDetail(id, box); return; }
         let rr = null;
         if (t.classList.contains("dsp-take")) rr = await supabaseClient.rpc("staff_take_dispute", { p_id: id });
         else if (t.classList.contains("dsp-assign")) { const mid = card.querySelector(".dsp-mod").value; if (!mid) return showToast("اختاري المشرفة أولاً", "error"); rr = await supabaseClient.rpc("admin_assign_dispute", { p_id: id, p_moderator: mid }); }
@@ -1371,9 +1376,39 @@ async function showAdminUserDetail(uid) {
         else if (t.classList.contains("dsp-resolve")) { const res = prompt("اكتبي قرار الحسم (يراه الطرفان):"); if (!res) return; const hide = card.dataset.hasrev ? confirm("هل تريدين إخفاء التقييم المرتبط بهذا الحجز؟ (إلغاء = إبقاؤه منشوراً)") : false; rr = await supabaseClient.rpc("staff_resolve_dispute", { p_id: id, p_resolution: res, p_review_action: hide ? "hide" : "keep" }); }
         else return;
         if (rr.error) return showToast("تعذر التنفيذ: " + rr.error.message, "error");
-        showToast("تم"); void renderDisputesStaff(box);
+        showToast("تم"); closeModal(); void renderDisputesStaff(box);
       };
     }
+async function showDisputeDetail(id, box) {
+  const d = dspRows.find(x => String(x.id) === String(id)); if (!d) return;
+  const me = currentUser(), isAdm = !!me && me.role === "admin";
+  openModal('<div id="dspModal" data-did="' + esc(d.id) + '" data-hasrev="' + (d.review_id ? "1" : "") + '" class="text-sm">جاري التحميل...</div>');
+  const r = await supabaseClient.rpc("dispute_context", { p_id: d.id });
+  const el = document.getElementById("dspModal"); if (!el) return;
+  const c = (r && !r.error && r.data) ? r.data : {};
+  const st = DSP_ST[d.status] || ["-", ""]; const done = d.status === "resolved";
+  const dt = v => v ? esc(new Date(v).toLocaleString("ar")) : "-";
+  const row = (k, v) => '<div class="flex justify-between gap-3 py-1.5 border-t border-[#E8DACA]"><span class="text-[#735447]">' + k + '</span><strong class="text-right">' + v + "</strong></div>";
+  const msgs = Array.isArray(c.messages) ? c.messages : [];
+  el.innerHTML = '<h2 class="text-lg font-extrabold text-[#4A332A] mb-1">⚖️ ' + esc(DSP_CAT[d.category] || d.category) + '</h2><span class="px-2 py-0.5 rounded-full text-[11px] font-bold ' + st[1] + '">' + st[0] + "</span>"
+    + '<div class="mt-3 p-3 rounded-xl bg-[#FBF7F2] border border-[#E8DACA]"><div class="text-[11px] text-[#735447] mb-1">ما هي المشكلة (كما كتبها صاحب الشكوى)</div><div style="white-space:pre-wrap">' + esc(d.details) + "</div></div>"
+    + row("فتحها", esc((d.opener_role === "client" ? "العميلة" : "مقدمة الخدمة") + ": " + (d.opener_name || "-"))) + row("ضد", esc(d.against_name || "-"))
+    + row("العميلة", esc(c.customer_name || "-")) + row("مقدمة الخدمة", esc(c.provider_name || d.provider_name || "-"))
+    + row("الخدمة", esc(c.service || "-")) + row("موعد الحجز", dt(c.scheduled_at || d.scheduled_at))
+    + row("المكان", esc((c.location_type || "-") + (c.address ? " / " + c.address : ""))) + row("المبلغ", esc(String(Number(d.total_amount || 0)) + " " + (d.currency || "")))
+    + row("حالة الحجز", aovSt(d.booking_status)) + row("تاريخ فتح النزاع", dt(d.created_at))
+    + (c.customer_notes ? row("ملاحظات العميلة على الحجز", esc(c.customer_notes)) : "") + (c.provider_notes ? row("ملاحظات مقدمة الخدمة", esc(c.provider_notes)) : "")
+    + (d.review_id ? row("التقييم المرتبط", esc(String(d.review_rating)) + "★ «" + esc(d.review_comment || "") + "»") : "")
+    + row("المشرفة المسؤولة", esc(d.assigned_name || "لم تُسند بعد")) + (d.escalation_note ? row("سبب التصعيد", esc(d.escalation_note)) : "") + (d.resolution ? row("القرار", esc(d.resolution)) : "")
+    + '<div class="mt-3"><div class="text-[11px] font-bold text-[#4A332A] mb-1">المحادثة بين الطرفين (آخر ' + msgs.length + " رسالة)</div><div class=\"max-h-48 overflow-y-auto space-y-1.5 p-2 rounded-xl bg-white border\">"
+    + (msgs.map(m => '<div class="text-[11px] p-2 rounded-lg ' + (m.role === "client" ? "bg-[#F3EAE0]" : "bg-[#EFE0C3]") + '"><b>' + (m.role === "client" ? "العميلة" : "مقدمة الخدمة") + "</b> • " + dt(m.created_at) + '<div style="white-space:pre-wrap">' + esc(m.body) + "</div></div>").join("") || '<p class="text-[11px] text-[#735447]">لا توجد رسائل بين الطرفين.</p>') + "</div></div>"
+    + (done ? "" : '<div class="flex flex-wrap items-center gap-1.5 pt-3 border-t border-[#E8DACA] mt-3 text-[11px]">'
+      + (!d.assigned_to ? '<button type="button" class="dsp-take px-2 py-1 rounded bg-blue-700 text-white font-bold">استلام النزاع</button>' : "")
+      + (isAdm ? '<select class="dsp-mod px-2 py-1 rounded border"><option value="">اختاري مشرفة...</option>' + dspMods.map(x => '<option value="' + esc(x.id) + '">' + esc(x.full_name || x.email) + " (" + Number(x.active_disputes) + ")</option>").join("") + '</select><button type="button" class="dsp-assign px-2 py-1 rounded bg-[#4A332A] text-white font-bold">إسناد</button>' : "")
+      + (!isAdm && d.is_mine && d.status === "in_review" ? '<button type="button" class="dsp-esc px-2 py-1 rounded bg-rose-700 text-white font-bold">تصعيد للإدارة</button>' : "")
+      + ((isAdm || (d.is_mine && d.status === "in_review")) ? '<button type="button" class="dsp-resolve px-2 py-1 rounded bg-emerald-700 text-white font-bold">حسم النزاع</button>' : "") + "</div>");
+  el.onclick = ev => dspHandle(ev, box);
+}
     async function renderAdmSubs(body) {
       const [s, pl, py] = await Promise.all([supabaseClient.rpc("admin_get_subscription_settings"), supabaseClient.rpc("get_subscription_plans"), supabaseClient.rpc("admin_list_subscription_payments")]);
       if (s.error) { body.textContent = "تعذر التحميل: " + s.error.message; return; }
@@ -2092,7 +2127,7 @@ async function showAdminUserDetail(uid) {
       });
       const topProviders = [...approvedProviders].sort((a, b) => (b.is_promoted - a.is_promoted) || (b.avg_rating - a.avg_rating)).slice(0, 4);
       const nearbyProviders = approvedProviders.filter(p => p.city === db.selectedCity);
-      const latestWorks = [...db.portfolio].reverse().slice(0, 4);
+      const latestWorks = [...db.portfolio].filter(w => { const pv = db.providerProfiles.find(p => p.id === w.provider_id); return !!pv && !pv.is_demo; }).reverse().slice(0, 4);
       const activeCats = db.categories.filter(c => c.is_active);
       const activePromos = db.promotions.filter(p => p.is_active);
 
@@ -2219,7 +2254,7 @@ async function showAdminUserDetail(uid) {
         </section>
 
         <!-- Latest Works Portfolio -->
-        <section class="max-w-7xl mx-auto px-4 py-10">
+        <section class="max-w-7xl mx-auto px-4 py-10 ${latestWorks.length ? "" : "hidden"}">
           <h2 class="text-2xl font-extrabold text-[#4A332A] mb-6">أحدث الأعمال المنشورة المنشورة</h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             ${latestWorks.map(w => {
@@ -3466,13 +3501,13 @@ async function showAdminUserDetail(uid) {
                   <h2 class="text-lg font-bold text-[#4A332A]">⚖️ إدارة الشكاوى والنزاعات (${openDisputes.length} مفتوح)</h2>
                   <div class="space-y-2 max-h-52 overflow-y-auto">
                     ${(db.disputes || []).map(d => `
-                      <div class="p-3 rounded-2xl bg-[#FBF7F2] border text-xs space-y-1.5">
+                      <div data-legacy-dispute="${d.id}" class="legacy-dsp p-3 rounded-2xl bg-[#FBF7F2] border text-xs space-y-1.5 cursor-pointer">
                         <div class="flex items-center justify-between">
                           <span class="font-bold">حجز #${d.booking_id} • ${d.category}</span>
                           <span class="px-2 py-0.5 rounded-full font-bold ${d.status === "resolved" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}">${d.status === "resolved" ? "تم الحل" : "مفتوح"}</span>
                         </div>
                         <p class="text-[#735447]">${d.details}</p>
-                        ${d.status === "open" ? `<button data-resolve-dispute="${d.id}" class="resolve-dispute-btn px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold">تسوية وإغلاق النزاع</button>` : `<div class="text-emerald-700 font-bold">التسوية: ${d.resolution}</div>`}
+                        ${d.status === "open" ? `<div class="text-[10px] text-[#B3746E]">اضغطي لعرض التفاصيل ثم التسوية</div>` : `<div class="text-emerald-700 font-bold">التسوية: ${d.resolution}</div>`}
                       </div>
                     `).join("") || `<p class="text-xs text-[#735447]">لا توجد نزاعات حالياً.</p>`}
                   </div>
@@ -4576,6 +4611,20 @@ async function showAdminUserDetail(uid) {
           if (w) { w.status = "notified"; w.notified_at = new Date().toISOString(); saveDB(); renderMain(); showToast("تم إرسال إشعار توفر موعد للعميلة 🔔"); }
         };
       });
+      document.querySelectorAll(".legacy-dsp").forEach(c => { c.onclick = () => {
+        const d = (db.disputes || []).find(x => x.id === Number(c.dataset.legacyDispute)); if (!d) return;
+        const prov = db.providerProfiles.find(p => p.id === d.provider_id); const opener = db.users.find(u => u.id === d.opened_by);
+        const bk = (db.bookings || []).find(x => x.id === d.booking_id); const svc = bk && (db.services || []).find(x => x.id === bk.service_id);
+        const row = (k, v) => '<div class="flex justify-between gap-3 py-1.5 border-t border-[#E8DACA]"><span class="text-[#735447]">' + k + '</span><strong class="text-right">' + v + "</strong></div>";
+        openModal('<h2 class="text-lg font-extrabold text-[#4A332A] mb-2">⚖️ ' + esc(d.category) + "</h2>"
+          + '<div class="p-3 rounded-xl bg-[#FBF7F2] border border-[#E8DACA]"><div class="text-[11px] text-[#735447] mb-1">ما هي المشكلة</div>' + esc(d.details) + "</div>"
+          + row("الحالة", d.status === "resolved" ? "تم الحل" : "مفتوح") + row("فتحها", esc(opener ? opener.full_name : "-")) + row("مقدمة الخدمة", esc(prov ? prov.display_name : "-"))
+          + row("رقم الحجز", "#" + esc(String(d.booking_id))) + row("الخدمة", esc(svc ? svc.title : "-")) + row("موعد الحجز", esc(bk ? bk.booking_date + " " + (bk.booking_time || "") : "-"))
+          + row("المبلغ", esc(bk ? String(bk.total_price_sar) + " ر.س" : "-")) + row("تاريخ الفتح", esc(String(d.created_at || "-")))
+          + (d.status === "resolved" ? row("القرار", esc(d.resolution || "-")) : '<button type="button" id="legacyResolveBtn" class="mt-3 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">تسوية وإغلاق النزاع</button>'));
+        const rb = document.getElementById("legacyResolveBtn");
+        if (rb) rb.onclick = () => { d.status = "resolved"; d.resolution = "تمت التسوية والتعويض بما يرضي الطرفين."; saveDB(); closeModal(); renderMain(); showToast("تم إغلاق النزاع وتسويته ✓"); };
+      }; });
       document.querySelectorAll(".resolve-dispute-btn").forEach(b => {
         b.onclick = () => {
           const d = (db.disputes || []).find(x => x.id === Number(b.dataset.resolveDispute));
