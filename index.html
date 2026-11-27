@@ -2006,7 +2006,7 @@
     function renderHome() {
       const approvedProviders = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        return p.approval_status === "approved" && u && u.is_active && !p.subscription_paused;
+        return p.approval_status === "approved" && (u ? u.is_active : !!p.supabase_id) && !p.subscription_paused;
       });
       const topProviders = [...approvedProviders].sort((a, b) => (b.is_promoted - a.is_promoted) || (b.avg_rating - a.avg_rating)).slice(0, 4);
       const nearbyProviders = approvedProviders.filter(p => p.city === db.selectedCity);
@@ -2202,7 +2202,7 @@
       const f = appState.filters;
       const results = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        if (p.approval_status !== "approved" || !u || !u.is_active || p.subscription_paused) return false;
+        if (p.approval_status !== "approved" || !(u ? u.is_active : !!p.supabase_id) || p.subscription_paused) return false;
         const pCountry = p.country || getCountryByCity(p.city);
         if (f.country && pCountry !== f.country) return false;
         if (f.city && p.city !== f.city) return false;
