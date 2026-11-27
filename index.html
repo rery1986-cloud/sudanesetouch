@@ -1754,6 +1754,43 @@
       };
     }
 
+    function showOpenInviteModal(token) {
+      if (!supabaseClient) return showToast("خدمة المصادقة غير متاحة حالياً", "error");
+      openModal(`
+        <h2 class="text-xl font-extrabold text-[#4A332A] mb-1">🛡️ دعوة للانضمام كمشرفة في لمسة</h2>
+        <p class="text-xs text-[#735447] mb-4">أدخلي بياناتكِ لإنشاء حسابكِ. الرابط يعمل لمرة واحدة فقط.</p>
+        <form id="openInviteForm" class="space-y-3">
+          <input name="full_name" required minlength="2" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="الاسم الكامل" />
+          <input name="email" type="email" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="البريد الإلكتروني" />
+          <input name="phone" required minlength="6" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="رقم الجوال" />
+          <input name="pwd" type="password" minlength="6" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="كلمة المرور (6 أحرف فأكثر)" />
+          <input name="confirm_pwd" type="password" minlength="6" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="تأكيد كلمة المرور" />
+          <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">إنشاء الحساب وتفعيل الدعوة</button>
+        </form>
+      `);
+      document.getElementById("openInviteForm").onsubmit = async e => {
+        e.preventDefault(); const fd = new FormData(e.target);
+        const fullName = String(fd.get("full_name") || "").trim(), email = String(fd.get("email") || "").trim().toLowerCase(), phone = String(fd.get("phone") || "").trim(), pwd = String(fd.get("pwd") || "");
+        if (pwd !== String(fd.get("confirm_pwd") || "")) return showToast("كلمتا المرور غير متطابقتين", "error");
+        const submit = e.target.querySelector("button[type=submit]"); submit.disabled = true;
+        try {
+          let authUser = (await supabaseClient.auth.getUser()).data?.user;
+          if (authUser && authUser.email?.toLowerCase() !== email) { await supabaseClient.auth.signOut(); authUser = null; }
+          if (!authUser) {
+            const signUp = await supabaseClient.auth.signUp({ email, password: pwd, options: { data: { role: "client", full_name: fullName, phone } } });
+            if (!signUp.error && signUp.data?.session) authUser = signUp.data.user;
+            else if (!signUp.error && !signUp.data?.session) return showToast("تم إنشاء الحساب. أكدي بريدك الإلكتروني ثم افتحي رابط الدعوة مجدداً لإكمال التفعيل.", "warn");
+            else { const signIn = await supabaseClient.auth.signInWithPassword({ email, password: pwd }); if (signIn.error) throw signIn.error; authUser = signIn.data.user; }
+          }
+          const { error } = await supabaseClient.rpc("accept_open_moderator_invitation", { p_token: token, p_full_name: fullName, p_phone: phone }); if (error) throw error;
+          const appUser = await activateSupabaseUser(authUser); if (!appUser || appUser.role !== "moderator") throw new Error("تعذر تحميل ملف المشرفة بعد قبول الدعوة");
+          closeModal(); try { if (window.location.hash.startsWith("#open_invite=")) history.replaceState(null, "", window.location.pathname + window.location.search); } catch (err) {}
+          renderHeader(); renderMain(); showToast("تم تفعيل حساب المشرفة بنجاح 🛡️");
+        } catch (error) { console.error("Open moderator invitation failed:", error); showToast(error.message || "تعذر قبول الدعوة. الرابط قد يكون منتهياً أو مستخدماً.", "error"); }
+        finally { submit.disabled = false; }
+      };
+    }
+
     function closeModal() {
       const root = document.getElementById("modalRoot");
       root.classList.add("hidden");
@@ -1848,6 +1885,9 @@
       appState.route = route;
       Object.assign(appState, extra);
       renderAnnouncementBar();
+    if (window.location.hash && window.location.hash.startsWith("#open_invite=")) {
+      setTimeout(() => showOpenInviteModal(decodeURIComponent(window.location.hash.slice(13))), 120);
+    }
     if (window.location.hash && window.location.hash.startsWith("#invite=")) {
       setTimeout(() => showAcceptInviteModal(decodeURIComponent(window.location.hash.slice(8))), 120);
     }
@@ -3163,6 +3203,14 @@
               </div>
               <button type="submit" class="sm:col-span-6 btn-primary py-2.5 rounded-xl text-xs font-extrabold">+ إضافة أدمن وتوليد رابط دعوة مباشر</button>
             </form>
+
+            <div class="p-4 rounded-2xl bg-white border border-[#E8DACA] space-y-2">
+              <div class="text-xs font-extrabold text-[#4A332A]">🔗 رابط دعوة مفتوح (بدون بريد أو بيانات): يستخدم لمرة واحدة وصالح 7 أيام</div>
+              <p class="text-[11px] text-[#735447]">اختاري الصلاحيات في الأعلى، ثم اضغطي الزر وأرسلي الرابط عبر واتساب. صاحبة الرابط تُدخل اسمها وبريدها وجوالها وكلمة مرورها بنفسها.</p>
+              <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" id="modOpenScope" class="accent-[#6D1A36]" /> تقييدها بالدولة والمنطقة المختارتين أعلاه</label>
+              <button type="button" id="createOpenInviteBtn" class="block w-full btn-primary py-2.5 rounded-xl text-xs font-extrabold">🔗 توليد رابط دعوة مفتوح</button>
+              <div id="adminOpenInvBox" class="text-[11px] text-[#735447]"></div>
+            </div>
 
             ${appState.lastModInvite ? `
               <div class="p-4 rounded-2xl bg-[#EFE0C3]/60 border border-[#C89D54] space-y-2">
@@ -4867,6 +4915,40 @@
           if (error) { console.error("Moderator invitation creation failed:", error); return showToast(error.message || "تعذر إنشاء الدعوة من Supabase", "error"); }
           appState.lastModInvite = { name: fullName, url: getInviteUrl(token), expires_at: data?.[0]?.expires_at || null }; renderMain(); showToast("تم إنشاء دعوة مشرفة آمنة من Supabase، وصلاحيتها 72 ساعة 🛡️");
         }
+      }
+      const openInvBtn = document.getElementById("createOpenInviteBtn");
+      const loadOpenInvites = async () => {
+        const box = document.getElementById("adminOpenInvBox"); if (!box || !supabaseClient) return;
+        const r = await supabaseClient.rpc("admin_list_open_invitations");
+        if (r.error) { box.textContent = "تعذر تحميل الدعوات: " + r.error.message; return; }
+        const ST = { active: "فعّالة", used: "مستخدمة", revoked: "ملغاة", expired: "منتهية" };
+        box.innerHTML = (r.data || []).map(x => '<div class="flex flex-wrap items-center justify-between gap-2 py-1.5 border-t border-[#E8DACA]"><span>' + esc(String(x.created_at).slice(0, 10)) + ' • ' + (ST[x.state] || esc(x.state)) + (x.accepted_name ? ' • ' + esc(x.accepted_name) : '') + '</span>' + (x.state === "active" ? '<button type="button" class="open-inv-revoke px-2 py-1 rounded bg-rose-100 text-rose-800 font-bold" data-id="' + esc(x.id) + '">إلغاء الرابط</button>' : '') + '</div>').join("") || "لا توجد دعوات مفتوحة بعد.";
+        box.querySelectorAll(".open-inv-revoke").forEach(b => { b.onclick = async () => {
+          if (!confirm("إلغاء هذا الرابط؟")) return;
+          const rr = await supabaseClient.rpc("admin_revoke_open_invitation", { p_id: b.dataset.id });
+          if (rr.error) return showToast("تعذر الإلغاء: " + rr.error.message, "error");
+          showToast("تم إلغاء الرابط"); void loadOpenInvites();
+        }; });
+      };
+      if (openInvBtn) {
+        void loadOpenInvites();
+        openInvBtn.onclick = async () => {
+          const me = currentUser();
+          if (!me || me.role !== "admin") return showToast("صلاحية الدعوات حصرية للإدارة فقط", "error");
+          if (!supabaseClient) return showToast("خدمة Supabase غير متاحة حالياً", "error");
+          const form = document.getElementById("adminAddModForm");
+          const perms = Array.from(form.querySelectorAll('input[name="mod_perm"]:checked')).map(c => c.value);
+          if (!perms.length) return showToast("اختاري صلاحية واحدة على الأقل", "error");
+          const scoped = !!(document.getElementById("modOpenScope") || {}).checked;
+          const country = scoped ? (document.getElementById("modCountryInput").value || "") : "";
+          const region = scoped ? getRegionByCity((document.getElementById("modCityInput").value || "").trim()) : "";
+          const token = createSecureInviteToken(); const tokenHash = await sha256Hex(token);
+          openInvBtn.disabled = true;
+          const { data, error } = await supabaseClient.rpc("create_open_moderator_invitation", { p_country: country, p_region: region, p_permissions: perms, p_token_hash: tokenHash });
+          openInvBtn.disabled = false;
+          if (error) { console.error("Open invitation creation failed:", error); return showToast(error.message || "تعذر إنشاء الرابط", "error"); }
+          appState.lastModInvite = { name: "رابط مفتوح", url: getInviteUrl(token).replace("#invite=", "#open_invite="), expires_at: data?.[0]?.expires_at || null }; renderMain(); showToast("تم إنشاء رابط دعوة مفتوح، صالح 7 أيام ولمرة واحدة 🛡️");
+        };
       }
       const copyLastBtn = document.getElementById("copyLastInviteBtn");
       if (copyLastBtn) {
