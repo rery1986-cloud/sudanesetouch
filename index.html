@@ -2343,6 +2343,15 @@ async function showDisputeDetail(id, box) {
             }).join("")}
           </div>
         </section>
+
+        <!-- Platform reviews -->
+        <section class="max-w-7xl mx-auto px-4 py-10">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 class="text-2xl font-extrabold text-[#4A332A]">⭐ آراء المستخدمات عن لمسة</h2>
+            <button type="button" id="writePlatformReviewBtn" class="btn-primary px-4 py-2 rounded-xl text-sm font-bold">✍️ اكتبي تقييمك</button>
+          </div>
+          <div id="platformReviewsBody" class="text-sm text-[#735447]">جاري التحميل...</div>
+        </section>
       `;
     }
 
@@ -2805,6 +2814,60 @@ async function showDisputeDetail(id, box) {
       const cols = ["#6D1A36", "#C89D54", "#C98E88"];
       return '<div class="space-y-2 text-xs">' + rows.map((r, i) => { const p = Math.round(r[1] * 100 / total); return '<div><div class="flex justify-between mb-1"><span>' + esc(r[0]) + '</span><span class="font-bold">' + p + '%</span></div><div class="h-2 rounded-full bg-[#F3EAE0] overflow-hidden"><div class="h-full" style="width:' + p + '%;background:' + cols[i] + '"></div></div></div>'; }).join("") + "</div>";
     }
+    function prStars(n) { n = Math.max(0, Math.min(5, Number(n) || 0)); return "★".repeat(n) + "☆".repeat(5 - n); }
+    async function loadPlatformReviews() {
+      const el = document.getElementById("platformReviewsBody"); if (!el) return;
+      if (!supabaseClient) { el.textContent = "لا توجد تقييمات بعد."; return; }
+      const r = await supabaseClient.rpc("list_platform_reviews");
+      const box = document.getElementById("platformReviewsBody"); if (!box) return;
+      const d = r.data || { count: 0, items: [] };
+      if (r.error || !d.items || !d.items.length) { box.innerHTML = '<div class="text-center py-8 glass-card rounded-3xl text-[#735447] font-semibold">لا توجد تقييمات بعد. كوني أول من يقيّم لمسة! ✨</div>'; return; }
+      box.innerHTML = '<p class="text-sm font-bold text-[#4A332A] mb-3"><span class="text-[#C89D54]">' + prStars(Math.round(Number(d.avg) || 0)) + "</span> " + esc(String(d.avg)) + " من 5 • " + esc(String(d.count)) + " تقييم</p>"
+        + '<div class="grid grid-cols-1 md:grid-cols-3 gap-4">' + d.items.map(x => '<div class="glass-card p-4 rounded-2xl"><div class="text-[#C89D54] text-sm">' + prStars(x.rating) + '</div><p class="text-sm text-[#4A332A] mt-1">' + esc(x.comment || "") + '</p><p class="text-[11px] text-[#735447] mt-2">' + esc(x.display_name) + " • " + esc(new Date(x.created_at).toLocaleDateString("ar")) + "</p></div>").join("") + "</div>";
+    }
+    async function openPlatformReviewModal() {
+      const u = currentUser();
+      if (!u || u.is_demo || !supabaseClient) { showToast("سجّلي الدخول بحسابك أولاً لتقييم لمسة", "warn"); return showLoginModal(); }
+      if (!["client", "provider", "merchant"].includes(u.role)) return showToast("التقييم متاح للعميلات ومقدمات الخدمة والتاجرات", "warn");
+      let rating = 0, comment = "", status = "";
+      const mine = await supabaseClient.rpc("get_my_platform_review");
+      if (mine.data) { rating = Number(mine.data.rating) || 0; comment = mine.data.comment || ""; status = mine.data.status || ""; }
+      openModal('<h2 class="text-xl font-extrabold text-[#4A332A] mb-3">⭐ قيّمي منصة لمسة</h2>'
+        + '<div id="prStarRow" class="flex gap-1 text-3xl text-[#C89D54] mb-3" dir="ltr"></div>'
+        + '<textarea id="prComment" maxlength="500" rows="4" placeholder="رأيك في لمسة (اختياري)" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm mb-2"></textarea>'
+        + '<p class="text-[11px] text-[#735447] mb-3">يظهر اسمك الأول فقط، ويظهر تقييمك للجميع بعد اعتماد الإدارة. لك تقييم واحد، ويمكنك تعديله.' + (status === "pending" ? " تقييمك الحالي بانتظار الاعتماد." : status === "hidden" ? " تقييمك الحالي غير ظاهر." : "") + "</p>"
+        + '<button type="button" id="prSaveBtn" class="btn-primary w-full py-2.5 rounded-xl font-bold text-sm">حفظ التقييم</button>');
+      const row = document.getElementById("prStarRow"), ta = document.getElementById("prComment"); ta.value = comment;
+      const paint = () => { row.innerHTML = [1, 2, 3, 4, 5].map(n => '<button type="button" data-pr-star="' + n + '" class="px-0.5">' + (n <= rating ? "★" : "☆") + "</button>").join(""); };
+      paint();
+      row.onclick = ev => { const b = ev.target.closest("[data-pr-star]"); if (!b) return; rating = Number(b.dataset.prStar); paint(); };
+      document.getElementById("prSaveBtn").onclick = async () => {
+        if (!rating) return showToast("اختاري عدد النجوم أولاً", "warn");
+        const btn = document.getElementById("prSaveBtn"); btn.disabled = true;
+        const r = await supabaseClient.rpc("save_platform_review", { p_rating: rating, p_comment: ta.value });
+        if (r.error) { btn.disabled = false; return showToast("تعذر حفظ التقييم: " + r.error.message, "error"); }
+        closeModal(); showToast("شكراً لك! سيظهر تقييمك بعد اعتماد الإدارة.");
+      };
+    }
+    async function loadAdminPlatformReviews() {
+      const el = document.getElementById("adminPlatformReviewsBox"); if (!el) return;
+      const r = await supabaseClient.rpc("admin_list_platform_reviews");
+      const box = document.getElementById("adminPlatformReviewsBox"); if (!box) return;
+      if (r.error) { box.classList.add("hidden"); return; }
+      const ST = { pending: "بانتظار الاعتماد", approved: "ظاهر", hidden: "مخفي" };
+      const rows = (r.data || []).map(x => '<div class="p-3 rounded-xl bg-white border border-[#E8DACA] space-y-1"><div class="flex justify-between gap-2"><strong>' + esc(x.display_name) + ' <span class="text-[#C89D54]">' + prStars(x.rating) + '</span></strong><span class="text-[11px]">' + esc(ST[x.status] || x.status) + "</span></div>"
+        + (x.comment ? '<p class="text-xs">' + esc(x.comment) + "</p>" : "") + '<p class="text-[10px] text-[#735447]" dir="ltr">' + esc(x.email || "") + '</p><div class="flex gap-2">'
+        + (x.status !== "approved" ? '<button type="button" data-pr-id="' + esc(x.id) + '" data-pr-s="approved" class="px-3 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold">اعتماد</button>' : "")
+        + (x.status !== "hidden" ? '<button type="button" data-pr-id="' + esc(x.id) + '" data-pr-s="hidden" class="px-3 py-1 rounded-lg bg-rose-700 text-white text-[11px] font-bold">إخفاء</button>' : "") + "</div></div>").join("");
+      box.innerHTML = '<strong class="text-sm text-[#4A332A]">⭐ تقييمات المنصة (' + (r.data || []).length + ")</strong>" + '<div class="space-y-2 mt-2">' + (rows || "لا توجد تقييمات بعد.") + "</div>";
+      box.onclick = async ev => {
+        const b = ev.target.closest("[data-pr-id]"); if (!b) return; b.disabled = true;
+        const rr = await supabaseClient.rpc("admin_set_platform_review_status", { p_id: b.dataset.prId, p_status: b.dataset.prS });
+        if (rr.error) { b.disabled = false; return showToast("تعذر التحديث: " + rr.error.message, "error"); }
+        showToast("تم التحديث"); void loadAdminPlatformReviews();
+      };
+    }
+    document.addEventListener("click", ev => { if (ev.target && ev.target.closest && ev.target.closest("#writePlatformReviewBtn")) void openPlatformReviewModal(); });
     function renderAccountSummary(user) {
       const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "الإدارة" };
       const roleName = roleNames[user.role] || user.role || "مستخدم";
@@ -3623,6 +3686,7 @@ async function showDisputeDetail(id, box) {
             </form>
 
             <div id="adminNotifBox" class="p-4 rounded-2xl bg-[#FFF8E7] border border-[#C89D54]/40 text-xs text-[#735447]">جاري تحميل إشعارات التسجيل...</div>
+            <div id="adminPlatformReviewsBox" class="p-4 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs text-[#735447]">جاري تحميل تقييمات المنصة...</div>
             <div id="adminMerchantsBox" class="p-4 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs text-[#735447]">جاري تحميل التاجرات...</div>
             <div id="adminPendingAdsBox" class="p-4 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs text-[#735447]">جاري تحميل الإعلانات المعلقة...</div>
             <div class="space-y-3">
@@ -4578,6 +4642,8 @@ async function showDisputeDetail(id, box) {
       if (document.getElementById("myProductsBox")) void loadMyProducts();
       if (document.getElementById("adminMerchantsBox")) void loadAdminMerchants();
       if (document.getElementById("adminPendingAdsBox")) void loadAdminPendingAds();
+      if (document.getElementById("platformReviewsBody")) void loadPlatformReviews();
+      if (document.getElementById("adminPlatformReviewsBox")) void loadAdminPlatformReviews();
       bindAdVideo();
     }
 
