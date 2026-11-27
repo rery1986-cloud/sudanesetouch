@@ -5122,6 +5122,13 @@
     renderMain();
     void syncCoreDataFromSupabase().then(changed => { if (changed) { renderHeader(); renderMain(); } });
     initializeAdminAuth();
+    (function openInviteFromHash() {
+      const h = window.location.hash || "";
+      try {
+        if (h.startsWith("#open_invite=")) setTimeout(() => showOpenInviteModal(decodeURIComponent(h.slice(13))), 300);
+        else if (h.startsWith("#invite=")) setTimeout(() => showAcceptInviteModal(decodeURIComponent(h.slice(8))), 300);
+      } catch (err) { console.warn("invite link not opened:", err); }
+    })();
   </script>
 </body>
 </html>
