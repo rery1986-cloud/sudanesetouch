@@ -914,7 +914,7 @@
             ad_type: m.ad_type || "general", title: row.title, details: row.description || "", image_url: row.image_url || "",
             subtitle: m.subtitle || "", cta_text: m.cta_text || "التفاصيل", target_type: m.target_type || "ad_detail", target_value: m.target_value || "",
             owner_name: m.owner_name || "", owner_avatar: m.owner_avatar || "", bazaar_logo: m.logo_url || "", video_url: m.video_url || "",
-            request_ad: !!m.placements, participants: m.participants || [], items: m.items || [],
+            request_ad: !!m.placements, placements: m.placements || null, participants: m.participants || [], items: m.items || [],
             owner_user_id: me && row.advertiser_user_id === me.auth_user_id ? me.id : (authToLocal.get(row.advertiser_user_id) || 0)
           });
         } else {
@@ -954,7 +954,7 @@
           const payload = {
             title: ad.title || "إعلان", description: ad.details || "", image_url: ad.image_url || null,
             target_url: ad.target_type === "url" ? (ad.target_value || null) : null,
-            meta: { ad_type: ad.ad_type, subtitle: ad.subtitle || "", cta_text: ad.cta_text || "", target_type: ad.target_type || "ad_detail", target_value: ad.target_value || "", owner_name: ad.owner_name || "", owner_avatar: ad.owner_avatar || "", logo_url: ad.bazaar_logo || "", video_url: ad.video_url || "", participants: ad.participants || [], items: ad.items || [] }
+            meta: { placements: ad.placements || undefined, source: ad.request_ad ? "request" : undefined, ad_type: ad.ad_type, subtitle: ad.subtitle || "", cta_text: ad.cta_text || "", target_type: ad.target_type || "ad_detail", target_value: ad.target_value || "", owner_name: ad.owner_name || "", owner_avatar: ad.owner_avatar || "", logo_url: ad.bazaar_logo || "", video_url: ad.video_url || "", participants: ad.participants || [], items: ad.items || [] }
           };
           const h = JSON.stringify(payload);
           if (ad.supabase_id) {
@@ -963,7 +963,7 @@
             if (r.error) { console.warn("ad update failed:", r.error.message); showToast("تعذر حفظ تعديل الإعلان على الخادم: " + r.error.message, "error"); continue; }
             ad.sync_hash = h;
           } else {
-            const r = await supabaseClient.from("advertisements").insert({ ...payload, placement: "strip", status: me.role === "admin" ? "active" : "pending" }).select("id, status").single();
+            const r = await supabaseClient.from("advertisements").insert({ ...payload, placement: "general", status: me.role === "admin" ? "active" : "pending" }).select("id, status").single();
             if (r.error) { console.warn("ad insert failed:", r.error.message); showToast("تعذر حفظ الإعلان على الخادم: " + r.error.message, "error"); ad.pending_sync = false; continue; }
             ad.supabase_id = r.data.id; ad.server_status = r.data.status; ad.is_active = r.data.status === "active"; delete ad.pending_sync; ad.sync_hash = h;
           }
@@ -1067,7 +1067,7 @@
         if (up.error) { btn.disabled = false; return showToast("تعذر رفع الصورة: " + up.error.message, "error"); }
         const imageUrl = supabaseClient.storage.from("media").getPublicUrl(path).data.publicUrl;
         const ins = await supabaseClient.from("advertisements").insert({
-          title: String(fd.get("title") || "").trim(), description: String(fd.get("details") || "").trim(), image_url: imageUrl, target_url: link || null, placement: "strip", status: "pending",
+          title: String(fd.get("title") || "").trim(), description: String(fd.get("details") || "").trim(), image_url: imageUrl, target_url: link || null, placement: "general", status: "pending",
           meta: { ad_type: "general", placements: places, source: "request", owner_name: me.store_name || me.full_name || "", cta_text: "التفاصيل", target_type: link ? "url" : "ad_detail", target_value: link }
         });
         btn.disabled = false;
