@@ -410,7 +410,7 @@
           { id: 6, full_name: "سلافة الصادق", email: "sulafa@lamsa.sa", phone_private: "+966500000006", password: "DemoProvider#2026", role: "provider", city: "الرياض", is_active: true, is_demo: true },
           { id: 7, full_name: "نسيبة بابكر", email: "nusaiba@lamsa.sa", phone_private: "+966500000007", password: "DemoProvider#2026", role: "provider", city: "جدة", is_active: true, is_demo: true },
           { id: 8, full_name: "أميرة عبد الله", email: "amira@lamsa.sa", phone_private: "+966500000008", password: "DemoProvider#2026", role: "provider", city: "جدة", is_active: true, is_demo: true },
-          { id: 9, full_name: "سلمى بابكر (أدمن جدة)", email: "mod.jeddah@lamsa.sa", phone_private: "+966500000009", password: "LamsaMod#2026", role: "moderator", city: "جدة", permissions: ["manage_ads", "manage_providers", "manage_reports"], is_active: true, is_demo: true },
+          { id: 9, full_name: "سلمى بابكر (أدمن جدة)", email: "mod.jeddah@lamsa.sa", phone_private: "+966500000009", password: "LamsaMod#2026", role: "moderator", country: "SA", city: "جدة", region: "منطقة مكة المكرمة", permissions: ["manage_ads", "manage_providers", "manage_reports"], is_active: true, is_demo: true },
           { id: 10, full_name: "أميرة الفكي — متجر عبق للبخور والثياب", email: "tajera@lamsa.sa", phone_private: "+966500000010", password: "LamsaMerchant#2026", role: "merchant", city: "جدة", store_name: "متجر عبق للبخور والثياب والإكسسوارات", is_active: true, is_demo: true },
           { id: 11, full_name: "نجلاء حسن", email: "naglaa.eg@lamsa.sa", phone_private: "+201000000011", password: "DemoProvider#2026", role: "provider", country: "EG", city: "القاهرة", is_active: true, is_demo: true },
           { id: 12, full_name: "مريم المنصوري", email: "mariam.ae@lamsa.sa", phone_private: "+971500000012", password: "DemoProvider#2026", role: "provider", country: "AE", city: "دبي", is_active: true, is_demo: true },
@@ -882,6 +882,7 @@
         role: profile.role,
         country: profile.country || "",
         city: profile.city || "",
+        region: profile.region || getRegionByCity(profile.city || ""),
         district: profile.district || "",
         specialty: profile.specialty || "",
         store_name: profile.store_name || "",
@@ -2350,7 +2351,7 @@
               <div class="flex flex-wrap items-center gap-2 mb-1">
                 <h1 class="text-2xl font-extrabold text-[#4A332A]">${isSuperAdmin ? "لوحة تحكم مديرة النظام" : "لوحة تحكم الأدمن (المشرفة)"}</h1>
                 <span class="px-3 py-1 rounded-full text-xs font-extrabold ${isSuperAdmin ? "bg-[#6D1A36] text-[#EFE0C3]" : "bg-[#EFE0C3] text-[#4A332A] border border-[#C89D54]"}">
-                  ${isSuperAdmin ? "👑 صلاحيات كاملة" : "🛡️ أدمن بصلاحيات محدودة • " + esc(me.city || "عام")}
+                  ${isSuperAdmin ? "👑 صلاحيات كاملة" : "🛡️ مشرفة إقليمية • " + esc(me.country ? getCountryObj(me.country).name : "الدولة غير محددة") + " • " + esc(me.region || getRegionByCity(me.city) || "المنطقة غير محددة") + " • " + esc(me.city || "عام")}
                 </span>
               </div>
               <p class="text-xs text-[#735447]">
@@ -2442,6 +2443,7 @@
                 ${renderCityOptions(db.selectedCountry || "SA", db.selectedCity || "الرياض", false)}
               </select>
               <input id="modPassInput" value="LamsaMod#2026" class="sm:col-span-2 px-3 py-2 rounded-xl bg-white border text-xs" placeholder="كلمة مرور مبدئية" required />
+              <input id="modRegionInput" readonly class="sm:col-span-6 px-3 py-2 rounded-xl bg-[#F3EAE0] border text-xs font-bold" placeholder="المنطقة تُحدد تلقائياً من المدينة" />
               <div class="sm:col-span-6 flex flex-wrap items-center gap-3 pt-1">
                 <span class="text-xs font-bold text-[#4A332A]">الصلاحيات الممنوحة:</span>
                 <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" name="mod_perm" value="manage_ads" checked class="accent-[#6D1A36]" /> إدارة الإعلانات والبازارات</label>
@@ -2469,7 +2471,7 @@
                 return `
                 <div class="p-3.5 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] flex flex-wrap items-center justify-between gap-3">
                   <div class="space-y-1">
-                    <div class="font-bold text-sm text-[#4A332A]">${esc(m.full_name)} <span class="text-xs font-normal text-[#735447]">(${getCountryObj(m.country || getCountryByCity(m.city)).flag} ${esc(m.city || "عام")})</span></div>
+                    <div class="font-bold text-sm text-[#4A332A]">${esc(m.full_name)} <span class="text-xs font-normal text-[#735447]">(${getCountryObj(m.country || getCountryByCity(m.city)).flag} ${esc(m.city || "عام")} • ${esc(m.region || getRegionByCity(m.city) || "عام")})</span></div>
                     <div class="text-xs text-[#735447]">📧 ${esc(m.email)}${m.phone_private ? ` • 📱 ${esc(m.phone_private)}` : ""} • الحالة: <strong class="${m.is_active ? 'text-emerald-700' : 'text-rose-700'}">${m.is_active ? "نشطة" : "معطلة"}</strong></div>
                     <div class="flex flex-wrap gap-1">
                       ${(m.permissions || []).map(p => `<span class="px-2 py-0.5 rounded-full bg-white border border-[#E8DACA] text-[10px] font-bold text-[#4A332A]">${PERM_LABELS[p] || p}</span>`).join("")}
@@ -2840,15 +2842,16 @@
         { id: "client", label: "عميلة", icon: "👩", hint: "للعميلات اللواتي يحجزن خدمات التجميل." },
         { id: "provider", label: "خبيرة تجميل", icon: "💄", hint: "لمقدمات الخدمة: الحنة، المكياج، الشعر، الرموش..." },
         { id: "merchant", label: "تاجرة / بازار", icon: "🛍️", hint: "لصاحبات المتاجر والبازارات: بخور، ثياب، إكسسوارات..." },
-        { id: "admin", label: "مديرة النظام", icon: "👑", hint: "مديرة النظام والمشرفات المعتمدات." }
+        { id: "admin", label: "مديرة النظام", icon: "👑", hint: "مديرة النظام والمشرفات المعتمدات." },
+        { id: "moderator", label: "مشرفة إقليمية", icon: "🛡️", hint: "مشرفة محددة بالدولة والمنطقة الممنوحة لها." }
       ];
-      const ROLE_NAMES = { admin: "مديرة النظام", moderator: "مشرفة", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" };
+      const ROLE_NAMES = { admin: "مديرة النظام", moderator: "مشرفة إقليمية", provider: "خبيرة تجميل", merchant: "تاجرة", client: "عميلة" };
       let selectedRole = LOGIN_ROLES.some(r => r.id === presetRole) ? presetRole : "client";
 
       openModal(`
         <h2 class="text-xl font-extrabold text-[#4A332A] mb-4">تسجيل الدخول إلى لَمْسَة</h2>
         <p class="text-xs font-bold text-[#735447] mb-2">ادخلي بصفتك:</p>
-        <div id="loginRoleTabs" class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2"></div>
+        <div id="loginRoleTabs" class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-2"></div>
         <p id="loginRoleHint" class="text-[11px] text-[#735447] mb-3"></p>
         <form id="loginForm" class="space-y-3">
           <input name="email" type="email" required placeholder="البريد الإلكتروني" class="w-full px-4 py-2.5 rounded-xl bg-white border text-sm" />
@@ -2864,7 +2867,7 @@
           <div class="grid grid-cols-3 gap-2 text-xs">
             <button data-demo-email="amna@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F3EAE0] font-bold hover:bg-[#EFE0C3]">عميلة (آمنة)</button>
             <button data-demo-email="tasneem@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F3EAE0] font-bold hover:bg-[#EFE0C3]">خبيرة (تسنيم)</button>
-            <button data-demo-email="mod.jeddah@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F5ECE0] font-bold hover:bg-[#EFE0C3]">أدمن (مشرفة)</button>
+            <button data-demo-email="mod.jeddah@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#F5ECE0] font-bold hover:bg-[#EFE0C3]">مشرفة إقليمية</button>
             <button data-demo-email="tajera@lamsa.sa" class="demo-login-btn p-2 rounded-xl bg-[#EFE0C3]/80 font-bold hover:bg-[#E2C792]">تاجرة / بازار</button>
           </div>
         </div>
@@ -2878,7 +2881,7 @@
         const cur = LOGIN_ROLES.find(r => r.id === selectedRole);
         document.getElementById("loginRoleHint").textContent = cur.hint;
         const regBtn = document.getElementById("loginToRegisterBtn");
-        regBtn.classList.toggle("hidden", selectedRole === "admin");
+        regBtn.classList.toggle("hidden", selectedRole === "admin" || selectedRole === "moderator");
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
         document.getElementById("adminForgotPasswordBtn").classList.toggle("hidden", selectedRole !== "admin");
         document.getElementById("adminResendConfirmationBtn").classList.toggle("hidden", selectedRole !== "admin");
@@ -2955,9 +2958,10 @@
           showToast(`أهلاً بك يا ${u.full_name}`);
           return;
         }
-        const demo = db.users.find(x => x.email === email && x.password === pwd && x.is_demo);
+        const demo = db.users.find(x => x.email === email && x.password === pwd && (x.is_demo || x.role === "moderator"));
         if (!demo) return showToast(publicResult.error.message || "بيانات الدخول غير صحيحة", "error");
         if (demo.role !== selectedRole) return showToast(`هذا الحساب مسجل كـ «${ROLE_NAMES[demo.role] || demo.role}» — اختاري نوع الحساب المناسب من الأعلى`, "error");
+        if (demo.role === "moderator" && !demo.is_active) return showToast("هذا الحساب الإشرافي معطل من مديرة النظام", "error");
         db.currentUserId = demo.id;
         saveDB();
         closeModal();
@@ -4046,8 +4050,13 @@
       if (modCountryInput && modCityInput) {
         modCountryInput.onchange = e => {
           modCityInput.innerHTML = renderCityOptions(e.target.value, "", false);
+          const regionField = document.getElementById("modRegionInput");
+          if (regionField) regionField.value = getRegionByCity(modCityInput.value);
         };
       }
+      const regionInput = document.getElementById("modRegionInput");
+      if (regionInput && modCityInput) regionInput.value = getRegionByCity(modCityInput.value);
+      if (modCityInput) modCityInput.onchange = () => { if (regionInput) regionInput.value = getRegionByCity(modCityInput.value); };
       const addModForm = document.getElementById("adminAddModForm");
       if (addModForm) {
         addModForm.onsubmit = (e) => {
@@ -4068,6 +4077,7 @@
           const fullName = document.getElementById("modNameInput").value.trim();
           const country = document.getElementById("modCountryInput").value || "SA";
           const city = document.getElementById("modCityInput").value.trim() || getCitiesByCountry(country)[0];
+          const region = getRegionByCity(city);
           db.users.push({
             id: nextUid,
             full_name: fullName,
@@ -4075,6 +4085,7 @@
             phone_private: document.getElementById("modPhoneInput").value.trim(),
             country,
             city,
+            region,
             password: document.getElementById("modPassInput").value.trim() || "LamsaMod#2026",
             role: "moderator",
             permissions: perms,
