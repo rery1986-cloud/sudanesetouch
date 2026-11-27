@@ -178,7 +178,7 @@
           <li>• نظام إبلاغ فوري عن أي محتوى أو حساب مخالف</li>
         </ul>
       </div>
-      <div>
+      <div id="demoAdminBox" class="hidden">
         <h4 class="font-bold text-[#E6C98A] mb-2">إدارة البيانات التجريبية</h4>
         <p class="text-xs text-[#E8DACA] mb-3">البيانات الافتراضية مفصولة بعلامة تجريبية، ويمكنك إنشاء حسابات حقيقية جديدة أو إعادة ضبط البيئة التجريبية في أي وقت.</p>
         <button id="resetDemoBtn" class="px-3 py-1.5 rounded-lg bg-[#6E4E42] hover:bg-[#C98E88] text-white text-xs font-semibold transition">إعادة ضبط البيانات التجريبية</button>
@@ -975,17 +975,32 @@
     const AOV_TABS = [["summary", "📊 ملخص"], ["clients", "العميلات"], ["providers", "مقدمات الخدمة"], ["merchants", "التاجرات"], ["bookings", "الحجوزات"], ["revenue", "الإيرادات"], ["ads", "الإعلانات"], ["bazaars", "البازارات"], ["discounts", "🎁 الخصومات"], ["reviews", "⭐ التقييمات"], ["subs", "💳 الاشتراكات"]];
     const AOV_COLS = {
       clients: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحجوزات", x => aovN(x.bookings_as_client)], ["التسجيل", x => aovD(x.created_at)], ["آخر دخول", x => aovD(x.last_sign_in_at || x.last_login_at)], ["الحالة", x => aovSt(x.account_status)]],
-      providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التقييم", x => aovN(x.rating)], ["الحجوزات", x => aovN(x.bookings_as_provider)], ["التسجيل", x => aovD(x.created_at)]],
-      merchants: [["المتجر", x => esc(x.merchant_name || x.full_name || "-")], ["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحالة", x => aovSt(x.merchant_status || x.approval_status)], ["التسجيل", x => aovD(x.created_at)]],
+      providers: [["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["التخصص", x => esc(x.specialty || "-")], ["الحالة", x => aovSt(x.provider_status || x.approval_status)], ["التقييم", x => aovN(x.rating)], ["الحجوزات", x => aovN(x.bookings_as_provider)], ["التسجيل", x => aovD(x.created_at)], ["إجراء", x => aovAct("provider", x.provider_id, x.provider_status)]],
+      merchants: [["المتجر", x => esc(x.merchant_name || x.full_name || "-")], ["الاسم", x => esc(x.full_name || "-")], ["البريد", x => aovLtr(x.email)], ["الجوال", x => aovLtr(x.phone)], ["الدولة/المدينة", x => esc((x.country_name || "-") + " / " + (x.city || "-"))], ["الحالة", x => aovSt(x.merchant_status || x.approval_status)], ["التسجيل", x => aovD(x.created_at)], ["إجراء", x => aovAct("merchant", x.merchant_id, x.merchant_status)]],
       bookings: [["رقم", x => "#" + esc(x.booking_number)], ["العميلة", x => esc(x.client_name || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الخدمة", x => esc(x.service || "-")], ["الموعد", x => aovD(x.scheduled_at)], ["المبلغ", x => aovN(x.total_amount) + " " + esc(x.currency || "")], ["الحالة", x => aovSt(x.status)]],
       revenue: [["الحجز", x => "#" + esc(x.booking_number || "-")], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["الإجمالي", x => aovN(x.gross_amount) + " " + esc(x.currency || "")], ["عمولة المنصة", x => aovN(x.platform_commission)], ["الصافي", x => aovN(x.provider_net_amount)], ["الدفع", x => aovSt(x.payment_status)], ["الطريقة", x => esc(x.payment_method || "-")], ["التاريخ", x => aovD(x.paid_at || x.created_at)]],
-      ads: [["العنوان", x => esc(x.title || "-")], ["المعلن", x => esc(x.advertiser_name || "-")], ["الموضع", x => esc(x.placement || "-")], ["الميزانية", x => aovN(x.budget)], ["المشاهدات", x => aovN(x.impressions)], ["النقرات", x => aovN(x.clicks)], ["الحالة", x => aovSt(x.status)], ["التاريخ", x => aovD(x.created_at)]],
+      ads: [["العنوان", x => esc(x.title || "-")], ["المعلن", x => esc(x.advertiser_name || "-")], ["الموضع", x => esc(x.placement || "-")], ["الميزانية", x => aovN(x.budget)], ["المشاهدات", x => aovN(x.impressions)], ["النقرات", x => aovN(x.clicks)], ["الحالة", x => aovSt(x.status)], ["التاريخ", x => aovD(x.created_at)], ["إجراء", x => aovAct("ad", x.id, x.status)]],
       reviews: [["التاريخ", x => aovD(x.created_at)], ["مقدمة الخدمة", x => esc(x.provider_name || "-")], ["العميلة", x => esc(x.client_name || "-")], ["التقييم", x => aovN(x.rating) + " ★"], ["التعليق", x => esc(x.comment || "")], ["الحالة", x => x.status === "hidden" ? "مخفي" : "منشور"], ["إجراء", x => '<button type="button" class="adm-rev-toggle px-2 py-1 rounded bg-[#EFE0C3] font-bold" data-id="' + esc(x.id) + '" data-s="' + (x.status === "hidden" ? "published" : "hidden") + '">' + (x.status === "hidden" ? "إظهار" : "إخفاء") + '</button>']],
       discounts: [["الكود", x => aovLtr(x.code)], ["النسبة", x => aovN(x.percent) + "%"], ["العميلة", x => esc(x.client_name || x.client_email || "-")], ["ينتهي", x => aovD(x.valid_to)], ["استُخدم", x => x.used_at ? aovD(x.used_at) : "لا"], ["الحالة", x => x.is_active ? "فعّال" : "معطّل"], ["إجراء", x => '<button type="button" class="adm-disc-toggle px-2 py-1 rounded bg-[#EFE0C3] font-bold" data-id="' + esc(x.id) + '" data-a="' + (x.is_active ? "0" : "1") + '">' + (x.is_active ? "تعطيل" : "تفعيل") + '</button>']],
       bazaars: [["الاسم", x => esc(x.name || "-")], ["المنظِّمة", x => esc(x.organizer_name || "-")], ["المكان", x => esc((x.venue || "-") + " / " + (x.city || "-"))], ["من", x => aovD(x.starts_at)], ["إلى", x => aovD(x.ends_at)], ["الحالة", x => aovSt(x.status)]]
     };
     const AOV_RPC = { clients: ["admin_list_users", { p_type: "client" }], providers: ["admin_list_users", { p_type: "service_provider" }], merchants: ["admin_list_users", { p_type: "merchant" }], bookings: ["admin_list_bookings", {}], revenue: ["admin_list_revenues", {}], ads: ["admin_list_ads", {}], bazaars: ["admin_list_bazaars", {}], discounts: ["admin_list_discount_codes", {}], reviews: ["admin_list_reviews", {}] };
     let aovTab = "summary", aovRows = [];
+    function aovAct(kind, id, st) {
+      if (!id) return "-";
+      const btn = (s, label, cls) => '<button type="button" class="adm-st px-2 py-1 rounded font-bold ' + cls + '" data-k="' + kind + '" data-id="' + esc(id) + '" data-s="' + s + '">' + label + '</button> ';
+      const ok = "bg-emerald-100 text-emerald-800", no = "bg-rose-100 text-rose-800", mid = "bg-[#EFE0C3]";
+      if (kind === "ad") {
+        if (st === "active") return btn("paused", "إيقاف", mid);
+        if (st === "paused") return btn("active", "تفعيل", ok);
+        if (st === "rejected") return btn("active", "اعتماد", ok);
+        if (st === "pending" || st === "draft") return btn("active", "اعتماد", ok) + btn("rejected", "رفض", no);
+        return "-";
+      }
+      if (st === "approved") return btn("rejected", "إلغاء الاعتماد", no);
+      if (st === "rejected") return btn("approved", "اعتماد", ok);
+      return btn("approved", "اعتماد", ok) + btn("rejected", "رفض", no);
+    }
     function aovTable() {
       const q = ((document.getElementById("admOvSearch") || {}).value || "").trim().toLowerCase();
       const cols = AOV_COLS[aovTab];
@@ -1032,6 +1047,19 @@
       body.innerHTML = (aovTab === "discounts" ? '<div id="admDiscSettings" class="p-3 rounded-2xl bg-white border border-[#E8DACA] mb-3 text-[11px]">جاري التحميل...</div>' : "") + '<input id="admOvSearch" class="w-full px-3 py-2 rounded-xl bg-white border text-xs mb-2" placeholder="بحث بالاسم أو البريد أو الجوال أو المدينة..." /><div id="admOvTable"></div>';
       document.getElementById("admOvSearch").oninput = aovTable;
       aovTable();
+      if (aovTab === "providers" || aovTab === "merchants" || aovTab === "ads") {
+        body.onclick = async ev => {
+          const b = ev.target.closest(".adm-st"); if (!b) return;
+          if (!confirm(b.dataset.s === "rejected" ? "تأكيد الرفض؟" : "تأكيد الاعتماد؟")) return;
+          const m = { provider: ["set_provider_status", "p_provider_id"], merchant: ["set_merchant_status", "p_merchant_id"], ad: ["set_ad_status", "p_ad_id"] }[b.dataset.k];
+          const args = { p_status: b.dataset.s }; args[m[1]] = b.dataset.id;
+          b.disabled = true;
+          const rr = await supabaseClient.rpc(m[0], args);
+          if (rr.error) { b.disabled = false; return showToast("تعذر التحديث: " + rr.error.message, "error"); }
+          showToast("تم التحديث");
+          void renderAdmOv();
+        };
+      }
       if (aovTab === "reviews") {
         body.onclick = async ev => {
           const b = ev.target.closest(".adm-rev-toggle"); if (!b) return;
@@ -1071,6 +1099,7 @@
     }
     async function loadAdminOverview() {
       const box = document.getElementById("adminOverviewBox"); if (!box || !supabaseClient) return;
+      const dab = document.getElementById("demoAdminBox"); if (dab) dab.classList.remove("hidden");
       box.innerHTML = '<div class="flex flex-wrap gap-1.5 mb-3">' + AOV_TABS.map(t => '<button type="button" data-t="' + t[0] + '" class="adm-ov-tab"></button>').join("") + '</div><div id="admOvBody"></div>';
       box.querySelectorAll(".adm-ov-tab").forEach(b => { b.textContent = AOV_TABS.find(t => t[0] === b.dataset.t)[1]; b.onclick = () => { aovTab = b.dataset.t; void renderAdmOv(); }; });
       await renderAdmOv();
@@ -3111,16 +3140,6 @@
             </div>
           </div>
 
-          <!-- KPIs -->
-          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold">${db.users.length}</div><div class="text-xs text-[#735447]">إجمالي المستخدمات</div></div>
-            <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold text-[#B3746E]">${providersCount}</div><div class="text-xs text-[#735447]">مقدمات الخدمات</div></div>
-            <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold">${clientsCount}</div><div class="text-xs text-[#735447]">العميلات</div></div>
-            <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold">${db.bookings.length}</div><div class="text-xs text-[#735447]">إجمالي الحجوزات</div></div>
-            <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold text-emerald-700">${completedCount}</div><div class="text-xs text-[#735447]">حجوزات مكتملة</div></div>
-            <div class="glass-card p-4 rounded-2xl text-center"><div class="text-2xl font-extrabold text-rose-700">${cancelledCount}</div><div class="text-xs text-[#735447]">حجوزات ملغاة</div></div>
-          </div>
-
           <div id="adminOverviewBox" class="glass-card p-5 rounded-3xl border border-[#C89D54]/50 text-xs text-[#735447]">جاري تحميل لوحة الإحصائيات...</div>
 
           <!-- Edit My Profile & Password Confirmation (Super Admin & Moderators) -->
@@ -3637,7 +3656,7 @@
         regBtn.textContent = `ليس لديكِ حساب؟ أنشئي حساب ${cur.label}`;
         document.getElementById("adminForgotPasswordBtn").classList.toggle("hidden", selectedRole !== "admin");
         document.getElementById("adminResendConfirmationBtn").classList.toggle("hidden", selectedRole !== "admin");
-        document.getElementById("adminCredentialsLink").classList.toggle("hidden", selectedRole !== "admin");
+        document.getElementById("adminCredentialsLink").classList.add("hidden");
         document.querySelectorAll(".login-role-tab").forEach(btn => {
           btn.onclick = () => { selectedRole = btn.dataset.loginRole; paintLoginRoles(); };
         });
