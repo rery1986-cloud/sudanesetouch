@@ -2790,6 +2790,21 @@ async function showDisputeDetail(id, box) {
       return renderAdminDashboard(user);
     }
 
+    function realBookingsOnly() {
+      return (db.bookings || []).filter(b => { const c = (db.users || []).find(u => u.id === b.client_id); return c && !c.is_demo; });
+    }
+    function renderDemandBars(list) {
+      const counts = {}; let total = 0;
+      (list || []).filter(b => b.status !== "cancelled" && b.status !== "rejected").forEach(b => {
+        const sv = (db.services || []).find(x => x.id === b.service_id);
+        const k = sv && sv.title ? sv.title : "خدمة";
+        counts[k] = (counts[k] || 0) + 1; total++;
+      });
+      const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      if (!rows.length) return '<p class="text-xs text-[#735447]">سيظهر التحليل هنا بعد وصول حجوزات حقيقية.</p>';
+      const cols = ["#6D1A36", "#C89D54", "#C98E88"];
+      return '<div class="space-y-2 text-xs">' + rows.map((r, i) => { const p = Math.round(r[1] * 100 / total); return '<div><div class="flex justify-between mb-1"><span>' + esc(r[0]) + '</span><span class="font-bold">' + p + '%</span></div><div class="h-2 rounded-full bg-[#F3EAE0] overflow-hidden"><div class="h-full" style="width:' + p + '%;background:' + cols[i] + '"></div></div></div>'; }).join("") + "</div>";
+    }
     function renderAccountSummary(user) {
       const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "الإدارة" };
       const roleName = roleNames[user.role] || user.role || "مستخدم";
@@ -3106,11 +3121,7 @@ async function showDisputeDetail(id, box) {
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="glass-card p-5 rounded-3xl space-y-3">
                   <h2 class="font-extrabold text-[#4A332A]">📊 تحليل الطلب: الخدمات والأحياء الأكثر طلباً</h2>
-                  <div class="space-y-2 text-xs">
-                    <div><div class="flex justify-between mb-1"><span>حناء سودانية وتجهيز عرائس (حي الرياض)</span><span class="font-bold">86%</span></div><div class="h-2 rounded-full bg-[#F3EAE0] overflow-hidden"><div class="h-full bg-[#6D1A36] w-[86%]"></div></div></div>
-                    <div><div class="flex justify-between mb-1"><span>عناية بالبشرة ودلكة (حي المنشية)</span><span class="font-bold">74%</span></div><div class="h-2 rounded-full bg-[#F3EAE0] overflow-hidden"><div class="h-full bg-[#C89D54] w-[74%]"></div></div></div>
-                    <div><div class="flex justify-between mb-1"><span>مكياج سهرة وتسريحة (جدة - الروضة)</span><span class="font-bold">63%</span></div><div class="h-2 rounded-full bg-[#F3EAE0] overflow-hidden"><div class="h-full bg-[#C98E88] w-[63%]"></div></div></div>
-                  </div>
+                  ${renderDemandBars(myBookings)}
                 </div>
 
                 <div class="glass-card p-5 rounded-3xl space-y-3">
@@ -3533,7 +3544,7 @@ async function showDisputeDetail(id, box) {
           <!-- Commercial Revenue, Demand Analytics & Disputes -->
           ${!isSuperAdmin ? "" : (() => {
             const isTrial = db.trialConfig && db.trialConfig.is_active;
-            const completedBks = db.bookings.filter(b => b.status === "completed");
+            const completedBks = realBookingsOnly().filter(b => b.status === "completed");
             const totalGMV = completedBks.reduce((s, b) => s + (b.total_price_sar || 0), 0);
             const totalCommission = isTrial ? 0 : completedBks.reduce((s, b) => {
               const pr = db.providerProfiles.find(x => x.id === b.provider_id);
@@ -3556,10 +3567,7 @@ async function showDisputeDetail(id, box) {
                     <div class="p-3 rounded-2xl bg-[#EFE0C3]"><div class="text-lg font-extrabold">${db.providerProfiles.filter(x=>x.is_promoted).length}</div><div>إعلانات مميزة نشطة</div></div>
                   </div>
                   <div class="text-xs space-y-1.5 pt-2">
-                    <div class="font-bold text-[#4A332A]">الأحياء والخدمات الأعلى طلباً:</div>
-                    <div class="flex justify-between"><span>1. حي الرياض / المنشية — حناء سودانية</span><span class="font-bold text-[#6D1A36]">42% من الطلب</span></div>
-                    <div class="flex justify-between"><span>2. جدة / الروضة — مكياج وتسريحة</span><span class="font-bold text-[#6D1A36]">33% من الطلب</span></div>
-                    <div class="flex justify-between"><span>3. الخرطوم / أركويت — دلكة وعناية</span><span class="font-bold text-[#6D1A36]">25% من الطلب</span></div>
+                    <div class="font-bold text-[#4A332A]">الأحياء والخدمات الأعلى طلباً:</div>${renderDemandBars(realBookingsOnly())}
                   </div>
                 </div>
 
