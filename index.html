@@ -1063,7 +1063,25 @@
         + '<div class="p-3 rounded-2xl bg-white border border-[#E8DACA] mt-3"><strong class="text-sm">📈 التسجيلات آخر 14 يوماً</strong><div class="flex items-end gap-1 h-24 mt-2">' + (days.map(d => '<div class="flex-1 text-center text-[9px]"><div class="bg-[#B3746E] rounded-t" style="height:' + Math.max(4, Math.round(70 * Number(d.n) / mx)) + 'px"></div>' + aovN(d.n) + '<br>' + esc(String(d.day).slice(5)) + '</div>').join("") || '<p class="text-[11px]">لا توجد تسجيلات.</p>') + '</div></div>'
         + '<p class="mt-2 text-[10px]">ملاحظة: "متصلون الآن" تقدير يعتمد على آخر تسجيل دخول خلال 15 دقيقة، ولا يعكس الزوار غير المسجلين.</p>';
     }
+    let aovBusy = false, aovPending = false;
     async function renderAdmOv() {
+      if (aovBusy) { aovPending = true; return; }
+      aovBusy = true;
+      try {
+        await Promise.race([renderAdmOvInner(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 25000))]);
+      } catch (e) {
+        console.warn("Admin tab load failed:", e);
+        const body = document.getElementById("admOvBody");
+        if (body) {
+          body.innerHTML = '<p class="text-sm font-bold">تعذر تحميل هذا القسم.</p><button type="button" id="admOvRetryBtn" class="mt-2 px-4 py-2 rounded-xl bg-[#4A332A] text-white text-xs font-bold">إعادة المحاولة</button>';
+          const rb = document.getElementById("admOvRetryBtn"); if (rb) rb.onclick = () => { void renderAdmOv(); };
+        }
+      } finally {
+        aovBusy = false;
+        if (aovPending) { aovPending = false; void renderAdmOv(); }
+      }
+    }
+    async function renderAdmOvInner() {
       const body = document.getElementById("admOvBody"); if (!body) return;
       document.querySelectorAll(".adm-ov-tab").forEach(b => { b.className = "adm-ov-tab px-3 py-1.5 rounded-xl text-[11px] font-bold " + (b.dataset.t === aovTab ? "bg-[#4A332A] text-white" : "bg-[#EFE0C3] text-[#4A332A]"); });
       body.textContent = "جاري التحميل...";
