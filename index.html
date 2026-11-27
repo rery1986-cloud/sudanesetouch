@@ -1556,7 +1556,7 @@ async function showDisputeDetail(id, box) {
             let local = db.services.find(x => x.supabase_id === row.id);
             if (!local) { local = { id: db.services.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1 }; db.services.push(local); }
             const cat = (db.categories || []).find(c => c.slug === row.category);
-            Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: cat ? cat.id : (local.category_id || null), title: row.title, description: row.description || "", price_sar: Number(row.price || 0), currency: row.currency || "SAR", duration_min: Number(row.duration_minutes || 60), home_service: true, salon_service: true, is_active: true, is_demo: false });
+            Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: cat ? cat.id : (local.category_id || null), title: row.title, description: row.description || "", price_sar: Number(row.price || 0), currency: row.currency || "SAR", duration_min: Number(row.duration_minutes || 60), discount_percent: Number(row.discount_percent || 0), offer_ends_at: row.ends_at || null, home_service: true, salon_service: true, is_active: true, is_demo: false });
           });
           (remoteWorks || []).forEach(row => {
             const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id);
@@ -2413,6 +2413,69 @@ async function showDisputeDetail(id, box) {
     // =========================================================================
     // 4. EXPLORE / SEARCH VIEW
     // =========================================================================
+    function activeOfferServices() {
+      const now = Date.now();
+      return db.services.filter(function (sv) {
+        if (!(Number(sv.discount_percent) > 0) || sv.is_demo) return false;
+        if (sv.offer_ends_at && new Date(sv.offer_ends_at).getTime() < now) return false;
+        const p = db.providerProfiles.find(function (x) { return x.id === sv.provider_id; });
+        return !!p && p.approval_status === "approved" && !p.is_demo && !p.subscription_paused;
+      });
+    }
+    function renderOffersPage() {
+      const list = activeOfferServices();
+      let h = '<section class="max-w-7xl mx-auto px-4 py-8 space-y-6"><div class="glass-card p-5 rounded-3xl"><h1 class="text-2xl font-extrabold text-[#4A332A]">العروض والتخفيضات</h1><p class="text-xs text-[#735447] mt-1">عروض حقيقية من الخبيرات المعتمدات، وكل عرض له تاريخ انتهاء.</p></div>';
+      if (!list.length) h += '<div class="text-center py-12 glass-card rounded-3xl text-[#735447]">لا توجد عروض حالياً. تابعينا قريباً ✨</div>';
+      else {
+        h += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">';
+        list.forEach(function (sv) {
+          const p = db.providerProfiles.find(function (x) { return x.id === sv.provider_id; });
+          const cur = currencyForProvider(p);
+          const pct = Number(sv.discount_percent); const oldP = Number(sv.price_sar); const newP = Math.round(oldP * (100 - pct)) / 100;
+          const ends = sv.offer_ends_at ? new Date(sv.offer_ends_at).toLocaleDateString("ar-SA", { dateStyle: "medium" }) : "";
+          h += '<div class="glass-card p-5 rounded-3xl space-y-2"><div class="flex items-center justify-between"><span class="px-3 py-1 rounded-full bg-[#C98E88] text-white text-xs font-bold">خصم ' + pct + '%</span>' + (ends ? '<span class="text-[11px] text-[#735447]">حتى ' + esc(ends) + '</span>' : "") + '</div>'
+            + '<h3 class="font-extrabold text-[#4A332A]">' + esc(sv.title) + '</h3>'
+            + '<p class="text-xs text-[#735447]">مع ' + esc(p.display_name) + ' • ' + esc(p.city || "") + '</p>'
+            + '<p class="text-sm"><span class="line-through text-[#735447]">' + oldP + '</span> <strong class="text-[#6D1A36]">' + newP + ' ' + esc(cur) + '</strong></p>'
+            + '<button type="button" data-provider="' + p.id + '" class="view-provider-btn w-full py-2 rounded-xl btn-primary text-xs font-bold">عرض صفحة الخبيرة والحجز</button></div>';
+        });
+        h += '</div>';
+      }
+      return h + '</section>';
+    }
+    function renderOfferBox(svcs) {
+      const real = svcs.filter(function (sv) { return sv.supabase_id; });
+      let h = '<div class="glass-card p-6 rounded-3xl space-y-3"><h2 class="text-lg font-bold">🏷️ نشر عرض أو تخفيض</h2>';
+      if (!real.length) return h + '<p class="text-xs text-[#735447]">أضيفي خدمة أولاً، ثم انشري عليها عرضاً.</p></div>';
+      const active = real.filter(function (sv) { return Number(sv.discount_percent) > 0 && (!sv.offer_ends_at || new Date(sv.offer_ends_at).getTime() > Date.now()); });
+      const def = new Date(Date.now() + 172800000).toISOString().slice(0, 10);
+      h += '<form id="offerForm" class="grid grid-cols-1 sm:grid-cols-4 gap-2"><select name="sid" class="px-3 py-2 rounded-xl bg-white border text-sm">' + real.map(function (sv) { return '<option value="' + sv.id + '">' + esc(sv.title) + '</option>'; }).join("") + '</select>'
+        + '<input name="pct" type="number" min="1" max="90" required placeholder="نسبة الخصم %" class="px-3 py-2 rounded-xl bg-white border text-sm" />'
+        + '<input name="ends" type="date" required value="' + def + '" class="px-3 py-2 rounded-xl bg-white border text-sm" />'
+        + '<button type="submit" class="btn-primary px-4 py-2 rounded-xl text-xs font-bold">نشر العرض</button></form>';
+      if (active.length) h += '<div class="space-y-2">' + active.map(function (sv) { return '<div class="flex items-center justify-between gap-2 p-3 rounded-xl bg-[#FBF7F2] text-xs"><span><strong>' + esc(sv.title) + '</strong> — خصم ' + Number(sv.discount_percent) + '%' + (sv.offer_ends_at ? ' حتى ' + esc(new Date(sv.offer_ends_at).toLocaleDateString("ar-SA", { dateStyle: "medium" })) : "") + '</span><button type="button" data-offer-stop="' + sv.id + '" class="px-3 py-1 rounded-lg bg-rose-100 text-rose-800 font-bold">إيقاف</button></div>'; }).join("") + '</div>';
+      return h + '</div>';
+    }
+    function bindOfferForm() {
+      const form = document.getElementById("offerForm");
+      const save = async function (sv, patch, okMsg) {
+        const r = await supabaseClient.from("service_offers").update(patch).eq("id", sv.supabase_id).select("id").maybeSingle();
+        if (r.error || !r.data) { showToast("تعذر حفظ العرض: " + (r.error ? r.error.message : "غير مسموح"), "error"); return; }
+        sv.discount_percent = Number(patch.discount_percent); sv.offer_ends_at = patch.ends_at || null; saveDB(); renderMain(); showToast(okMsg);
+      };
+      if (form) form.onsubmit = function (e) {
+        e.preventDefault(); const fd = new FormData(form);
+        const sv = db.services.find(function (x) { return String(x.id) === String(fd.get("sid")); });
+        const pct = Number(fd.get("pct")); const ends = new Date(String(fd.get("ends")) + "T23:59:59");
+        if (!sv || !sv.supabase_id) return;
+        if (!(pct >= 1 && pct <= 90)) { showToast("نسبة الخصم من 1 إلى 90", "error"); return; }
+        if (isNaN(ends.getTime()) || ends.getTime() <= Date.now()) { showToast("تاريخ الانتهاء لازم يكون في المستقبل", "error"); return; }
+        void save(sv, { discount_percent: pct, starts_at: new Date().toISOString(), ends_at: ends.toISOString() }, "تم نشر العرض ✓");
+      };
+      document.querySelectorAll("[data-offer-stop]").forEach(function (b) {
+        b.onclick = function () { const sv = db.services.find(function (x) { return String(x.id) === b.dataset.offerStop; }); if (sv && sv.supabase_id) void save(sv, { discount_percent: 0, ends_at: null }, "تم إيقاف العرض"); };
+      });
+    }
     function renderExplore() {
       const f = appState.filters;
       const results = db.providerProfiles.filter(p => {
@@ -3382,6 +3445,7 @@ async function showDisputeDetail(id, box) {
 
           <!-- Reviews & Subscriptions -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            ${renderOfferBox(mySvcs)}
             <div class="glass-card p-6 rounded-3xl space-y-3">
               <h2 class="text-lg font-bold">تقييمات العميلات (${myRevs.length})</h2>
               ${myRevs.map(r => `<div class="p-3 rounded-xl bg-[#FBF7F2] text-xs"><strong>${"★".repeat(r.rating)}</strong> — ${r.comment}</div>`).join("") || `<p class="text-xs text-[#735447]">لا توجد تقييمات بعد.</p>`}
@@ -4817,7 +4881,8 @@ async function showDisputeDetail(id, box) {
       renderVisualAdStrip();
       const main = document.getElementById("appMain");
       if (appState.route === "home") main.innerHTML = renderHome();
-      else if (appState.route === "explore" || appState.route === "offers") main.innerHTML = renderExplore();
+      else if (appState.route === "explore") main.innerHTML = renderExplore();
+      else if (appState.route === "offers") main.innerHTML = renderOffersPage();
       else if (appState.route === "provider") main.innerHTML = renderProviderDetail();
       else if (appState.route === "ad_detail") main.innerHTML = renderAdDetail();
       else if (appState.route === "dashboard") main.innerHTML = renderDashboard();
@@ -4826,6 +4891,7 @@ async function showDisputeDetail(id, box) {
       bindEvents();
       if (appState.route === "shop") void loadShop();
       if (appState.route === "messages") void renderMessagesPage();
+      if (document.getElementById("offerForm") || document.querySelector("[data-offer-stop]")) bindOfferForm();
       if (document.getElementById("myProductsBox")) void loadMyProducts();
       if (document.getElementById("adminMerchantsBox")) void loadAdminMerchants();
       if (document.getElementById("adminPendingAdsBox")) void loadAdminPendingAds();
