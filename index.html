@@ -3017,6 +3017,8 @@ async function showDisputeDetail(id, box) {
     function renderAccountSummary(user) {
       const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "الإدارة" };
       const roleName = roleNames[user.role] || user.role || "مستخدم";
+      const __pp = user.role === "provider" ? db.providerProfiles.find(x => x.user_id === user.id) : null;
+      const shownName = (__pp && __pp.display_name) || user.full_name;
       const countryName = user.country ? getCountryObj(user.country).name : "غير محددة";
       const location = [countryName, user.city].filter(Boolean).join(" • ") || "غير محدد";
       const extraLabel = user.role === "provider" ? "التخصص" : user.role === "merchant" ? "المتجر / البازار" : "نوع الحساب";
@@ -3028,13 +3030,13 @@ async function showDisputeDetail(id, box) {
         <div class="glass-card p-5 rounded-3xl border border-[#E8DACA] bg-gradient-to-l from-[#FFF9F1] to-white">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex items-center gap-3">
-              <div class="w-14 h-14 rounded-2xl bg-[#6D1A36] text-white flex items-center justify-center text-2xl font-extrabold">${esc((user.full_name || "م").trim().charAt(0) || "م")}</div>
+              <div class="w-14 h-14 rounded-2xl bg-[#6D1A36] text-white flex items-center justify-center text-2xl font-extrabold">${esc((shownName || "م").trim().charAt(0) || "م")}</div>
               <div>
                 <div class="flex flex-wrap items-center gap-2">
                   <h2 class="text-lg font-extrabold text-[#4A332A]">بيانات حسابك</h2>
                   <span class="px-2.5 py-1 rounded-full border text-[11px] font-bold ${status.cls}">${status.text}</span>
                 </div>
-                <p class="text-sm font-bold text-[#735447] mt-1">${esc(user.full_name || "مستخدم لمسة")} • ${esc(roleName)}</p>
+                <p class="text-sm font-bold text-[#735447] mt-1">${esc(shownName || "مستخدم لمسة")} • ${esc(roleName)}</p>
               </div>
             </div>
             <span class="px-3 py-1.5 rounded-full bg-[#EFE0C3] text-[#4A332A] text-[11px] font-bold">${user.is_demo ? "حساب تجريبي" : "حساب مرتبط بـ Supabase"}</span>
