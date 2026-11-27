@@ -382,7 +382,9 @@
       confirmed: { label: "مؤكد", cls: "bg-indigo-100 text-indigo-800" },
       completed: { label: "مكتمل", cls: "bg-emerald-100 text-emerald-800" },
       cancelled: { label: "ملغي", cls: "bg-stone-200 text-stone-700" },
-      rejected: { label: "مرفوض", cls: "bg-rose-100 text-rose-800" }
+      rejected: { label: "مرفوض", cls: "bg-rose-100 text-rose-800" },
+      in_progress: { label: "قيد التنفيذ", cls: "bg-sky-100 text-sky-800" },
+      no_show: { label: "لم تحضر", cls: "bg-stone-200 text-stone-700" }
     };
 
     const STORAGE_KEY = "lamsa_platform_db_v1";
@@ -770,11 +772,24 @@
           });
           const { data: authData } = await supabaseClient.auth.getUser();
           if (authData?.user?.id) {
-            const { data: rows, error: be } = await supabaseClient.from("bookings").select("*").order("created_at", { ascending: false });
+            const meCust = await supabaseClient.from("customers").select("id").eq("user_id", authData.user.id).maybeSingle();
+            const myCustomerId = meCust.data?.id || null;
+            const myLocal = db.users.find(u => u.auth_user_id === authData.user.id);
+            const { data: rows, error: be } = await supabaseClient.from("bookings").select("id, booking_number, customer_id, provider_id, offer_id, scheduled_at, status, customer_notes, total_amount, currency, location_type, address, created_at").order("created_at", { ascending: false });
+            if (be) console.warn("Supabase bookings read failed:", be.message);
             if (!be) (rows || []).forEach(row => {
               const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id); if (!provider) return;
-              let local = db.bookings.find(x => x.supabase_id === row.id); if (!local) { local = { id: remoteUiId(row.id) }; db.bookings.push(local); }
-              Object.assign(local, { supabase_id: row.id, client_id: row.client_id === authData.user.id ? db.users.find(u => u.auth_user_id === authData.user.id)?.id : row.client_id, provider_id: provider.id, service_id: db.services.find(x => x.supabase_id === row.service_id)?.id || remoteUiId(row.service_id), booking_date: row.booking_date, booking_time: String(row.booking_time || "").slice(0,5), location_type: row.location_type, address: row.address, notes: row.notes || "", total_price_sar: Number(row.total_price_sar || 0), commission_sar: Number(row.commission_sar || 0), status: row.status, is_demo: false });
+              const svc = db.services.find(x => x.supabase_id === row.offer_id); if (!svc) return;
+              let clientLocalId = (row.customer_id === myCustomerId && myLocal) ? myLocal.id : null;
+              if (!clientLocalId) {
+                let stub = db.users.find(u => u.customer_uuid === row.customer_id);
+                if (!stub) { stub = { id: db.users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0) + 1, full_name: "عميلة", email: "", role: "client", is_active: true, is_demo: false, customer_uuid: row.customer_id }; db.users.push(stub); }
+                clientLocalId = stub.id;
+              }
+              let local = db.bookings.find(x => x.supabase_id === row.id);
+              if (!local) { local = { id: db.bookings.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1 }; db.bookings.push(local); }
+              const when = new Date(row.scheduled_at);
+              Object.assign(local, { supabase_id: row.id, client_id: clientLocalId, provider_id: provider.id, service_id: svc.id, booking_date: when.toLocaleDateString("en-CA"), booking_time: when.toTimeString().slice(0, 5), location_type: row.location_type || "home", address: row.address || "", notes: row.customer_notes || "", total_price_sar: Number(row.total_amount || 0), currency: row.currency || "SAR", commission_sar: 0, status: row.status, is_demo: false });
             });
           }
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
@@ -826,13 +841,24 @@
       const result = service.supabase_id ? await supabaseClient.from("service_offers").update(payload).eq("id", service.supabase_id).select("id").maybeSingle() : await supabaseClient.from("service_offers").insert(payload).select("id").single();
       if (result.error) { console.warn("Supabase service save failed:", result.error.message); showToast("تعذر حفظ الخدمة على الخادم: " + result.error.message, "error"); } else if (result.data?.id) service.supabase_id = result.data.id;
     }
-    async function persistBookingToSupabase(booking, service, providerProfile) {
-      const user = currentUser(); if (!supabaseClient || !user?.auth_user_id || !booking || !service?.supabase_id || !providerProfile?.supabase_id) return;
-      const payload = { client_id: user.auth_user_id, provider_id: providerProfile.supabase_id, service_id: service.supabase_id, booking_date: booking.booking_date, booking_time: booking.booking_time, location_type: booking.location_type, address: booking.address, notes: booking.notes || "", total_price_sar: Number(booking.total_price_sar || 0), commission_sar: Number(booking.commission_sar || 0), status: booking.status || "pending", is_demo: false };
-      const result = booking.supabase_id ? await supabaseClient.from("bookings").update(payload).eq("id", booking.supabase_id).select("id").maybeSingle() : await supabaseClient.from("bookings").insert(payload).select("id").single();
-      if (result.error) console.warn("Supabase booking save failed:", result.error.message); else if (result.data?.id) booking.supabase_id = result.data.id;
+    async function createBookingOnServer(service, fd) {
+      const user = currentUser();
+      if (!supabaseClient || !user?.auth_user_id) { showToast("سجّلي الدخول أولاً", "error"); return null; }
+      let cust = await supabaseClient.from("customers").select("id").eq("user_id", user.auth_user_id).maybeSingle();
+      if (!cust.data?.id) cust = await supabaseClient.from("customers").insert({ user_id: user.auth_user_id }).select("id").maybeSingle();
+      if (cust.error || !cust.data?.id) { showToast("تعذر تجهيز حساب العميلة: " + (cust.error?.message || ""), "error"); return null; }
+      const when = new Date(String(fd.get("booking_date")) + "T" + String(fd.get("booking_time")));
+      if (isNaN(when.getTime())) { showToast("التاريخ أو الوقت غير صالح", "error"); return null; }
+      const res = await supabaseClient.from("bookings").insert({ customer_id: cust.data.id, offer_id: service.supabase_id, scheduled_at: when.toISOString(), customer_notes: String(fd.get("notes") || ""), location_type: fd.get("location_type"), address: String(fd.get("address") || "") }).select("id, total_amount, currency, status").single();
+      if (res.error) { console.warn("Supabase booking failed:", res.error.message); showToast("تعذر إرسال الحجز: " + res.error.message, "error"); return null; }
+      return res.data;
     }
-    async function persistBookingUpdateToSupabase(booking) { if (!supabaseClient || !booking?.supabase_id) return; const { error } = await supabaseClient.from("bookings").update({ status: booking.status }).eq("id", booking.supabase_id); if (error) console.warn("Supabase booking status update failed:", error.message); }
+    async function persistBookingUpdateToSupabase(booking) {
+      if (!supabaseClient || !booking?.supabase_id) return true;
+      const { error } = await supabaseClient.from("bookings").update({ status: booking.status }).eq("id", booking.supabase_id);
+      if (error) { console.warn("Supabase booking status update failed:", error.message); showToast("تعذر تحديث الحجز على الخادم: " + error.message, "error"); return false; }
+      return true;
+    }
     async function loadSupabaseDB() {
       if (!supabaseClient || !verifiedAdminUserId) return;
       try {
@@ -2242,7 +2268,7 @@
                     </div>
                     <div class="flex flex-wrap gap-2">
                       ${b.status === "pending" ? `
-                        <button data-bk-id="${b.id}" data-bk-st="accepted" class="prov-bk-btn px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold">قبول</button>
+                        <button data-bk-id="${b.id}" data-bk-st="confirmed" class="prov-bk-btn px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-bold">قبول</button>
                         <button data-bk-id="${b.id}" data-bk-st="rejected" class="prov-bk-btn px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-bold">رفض</button>
                       ` : ""}
                       ${b.status === "accepted" ? `<button data-bk-id="${b.id}" data-bk-st="confirmed" class="prov-bk-btn px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold">تأكيد الموعد</button>` : ""}
@@ -3191,7 +3217,7 @@
         <p class="text-xs text-[#735447] mb-4">مع ${prov.display_name} • السعر: <strong>${svc.price_sar} ر.س</strong></p>
         <form id="bookingForm" class="space-y-3">
           <div class="grid grid-cols-2 gap-2">
-            <div><label class="text-xs font-bold">التاريخ</label><input name="booking_date" type="date" required value="2026-11-25" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" /></div>
+            <div><label class="text-xs font-bold">التاريخ</label><input name="booking_date" type="date" required value="${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" /></div>
             <div><label class="text-xs font-bold">الوقت</label><input name="booking_time" type="time" required value="17:00" class="w-full px-3 py-2 rounded-xl bg-white border text-sm" /></div>
           </div>
           <select name="location_type" class="w-full px-3 py-2 rounded-xl bg-white border text-sm">
@@ -3206,12 +3232,14 @@
       document.getElementById("bookingForm").onsubmit = async e => {
         e.preventDefault();
         const fd = new FormData(e.target);
+        let serverRes = null;
+        if (svc.supabase_id) { serverRes = await createBookingOnServer(svc, fd); if (!serverRes) return; }
         const bid = Math.max(0, ...db.bookings.map(b => b.id)) + 1;
         db.bookings.push({
           id: bid, client_id: user.id, provider_id: prov.id, service_id: svc.id,
           booking_date: fd.get("booking_date"), booking_time: fd.get("booking_time"),
           location_type: fd.get("location_type"), address: fd.get("address"),
-          notes: fd.get("notes"), total_price_sar: svc.price_sar,
+          notes: fd.get("notes"), supabase_id: serverRes ? serverRes.id : undefined, total_price_sar: serverRes ? Number(serverRes.total_amount) : svc.price_sar,
           commission_sar: Number((svc.price_sar * db.monetization.commission_rate / 100).toFixed(2)),
           status: "pending", is_demo: false
         });
@@ -3219,7 +3247,6 @@
           id: Date.now(), user_id: prov.user_id,
           title: "طلب حجز جديد", body: `لديك طلب حجز جديد على ${svc.title} من ${user.full_name}`, is_read: false
         });
-        void persistBookingToSupabase(db.bookings[db.bookings.length - 1], svc, prov);
         saveDB();
         closeModal();
         navigate("dashboard");
@@ -3704,9 +3731,12 @@
 
       // Client Dashboard actions
       document.querySelectorAll(".cancel-bk-btn").forEach(b => {
-        b.onclick = () => {
+        b.onclick = async () => {
           const bk = db.bookings.find(x => x.id === Number(b.dataset.cancelBk));
-          if (bk) bk.status = "cancelled";
+          if (!bk) return;
+          const prevStatus = bk.status;
+          bk.status = "cancelled";
+          if (!(await persistBookingUpdateToSupabase(bk))) { bk.status = prevStatus; return; }
           saveDB(); renderMain(); showToast("تم إلغاء الحجز");
         };
       });
@@ -3714,18 +3744,18 @@
 
       // Provider Dashboard actions
       document.querySelectorAll(".prov-bk-btn").forEach(b => {
-        b.onclick = () => {
+        b.onclick = async () => {
           const bk = db.bookings.find(x => x.id === Number(b.dataset.bkId));
           if (bk) {
             const prev = bk.status;
             bk.status = b.dataset.bkSt;
+            if (!(await persistBookingUpdateToSupabase(bk))) { bk.status = prev; return; }
             if (bk.status === "completed" && prev !== "completed") {
               const pr = db.providerProfiles.find(x => x.id === bk.provider_id);
               if (pr) pr.completed_bookings_count = (pr.completed_bookings_count || 0) + 1;
             }
             db.notifications.push({ id: Date.now(), user_id: bk.client_id, title: "تحديث الحجز", body: `تم تحديث حالة حجزك إلى: ${BOOKING_STATUS_MAP[bk.status].label}`, is_read: false });
           }
-          void persistBookingUpdateToSupabase(bk);
           saveDB(); renderMain(); showToast("تم تحديث حالة الحجز");
         };
       });
