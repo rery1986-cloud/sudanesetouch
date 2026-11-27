@@ -653,8 +653,8 @@
           { id: 1, reporter_id: 2, target_type: "review", target_id: 5, reason: "مراجعة تجريبية للفحص الإداري", status: "open", admin_note: "" }
         ],
         promotions: [
-          { id: 1, title: "باقة العروس السودانية المتكاملة", subtitle: "خصم 20% على الحنة + الدلكة + المكياج في الرياض وجدة", discount_percent: 20, promo_code: "LAMSA20", provider_id: 1, banner_type: "offer", is_active: true, expires_at: "2026-12-30" },
-          { id: 2, title: "إعلان ممول: إطلالة الجرتق مع رندا", subtitle: "رموش مجانية مع كل باقة مكياج عروس", discount_percent: 15, promo_code: "RANDA15", provider_id: 2, banner_type: "ad", is_active: true, expires_at: "2026-12-15" }
+          { id: 1, title: "باقة العروس السودانية المتكاملة", subtitle: "خصم 20% على الحنة + الدلكة + المكياج في الرياض وجدة", discount_percent: 20, promo_code: "", provider_id: 1, banner_type: "offer", is_active: true, expires_at: "2026-12-30" },
+          { id: 2, title: "إعلان ممول: إطلالة الجرتق مع رندا", subtitle: "رموش مجانية مع كل باقة مكياج عروس", discount_percent: 15, promo_code: "", provider_id: 2, banner_type: "ad", is_active: true, expires_at: "2026-12-15" }
         ],
         monetization: {
           commission_rate: 12,
@@ -1594,8 +1594,8 @@
     function renderAnnouncementBar() {
       const bar = document.getElementById("promoAnnouncementBar");
       if (!bar) return;
-      const cfg = db.announcementBar || { enabled: true, badge: "عروض الموسم ✨", text: "خصم 20% بكود LAMSA20", theme: "gold" };
-      if (!cfg.enabled || promoBarDismissed) {
+      const cfg = db.announcementBar || { enabled: false, badge: "", text: "", theme: "gold" };
+      if (!cfg.enabled || promoBarDismissed || /كود/.test(cfg.text || "")) {
         bar.classList.add("hidden");
         return;
       }
@@ -1761,7 +1761,7 @@
               <div class="rounded-3xl p-6 bg-gradient-to-l from-[#4A332A] to-[#6E4E42] text-[#FBF7F2] flex flex-col justify-between gap-3 shadow-lg border border-[#C89D54]/40">
                 <div class="flex items-center justify-between">
                   <span class="px-3 py-1 rounded-full bg-[#C98E88] text-white text-xs font-bold">${pr.banner_type === "ad" ? "إعلان ممول" : `خصم ${pr.discount_percent}%`}</span>
-                  ${pr.promo_code ? `<span class="px-3 py-1 rounded-lg bg-[#E6C98A] text-[#4A332A] font-mono text-xs font-bold">كود: ${pr.promo_code}</span>` : ""}
+
                 </div>
                 <div>
                   <h3 class="text-xl font-bold text-[#E6C98A]">${pr.title}</h3>
@@ -3355,7 +3355,7 @@
 
             <form id="adminAddPromoForm" class="grid grid-cols-1 sm:grid-cols-5 gap-2">
               <input name="title" class="sm:col-span-2 px-3 py-2 rounded-xl bg-[#FBF7F2] border text-sm" placeholder="عنوان العرض أو الإعلان" required />
-              <input name="promo_code" class="px-3 py-2 rounded-xl bg-[#FBF7F2] border text-sm" placeholder="كود الخصم" />
+              <input name="promo_code" disabled class="px-3 py-2 rounded-xl bg-[#FBF7F2] border text-sm opacity-60" placeholder="أكواد الخصم قريباً" />
               <input name="discount_percent" type="number" value="15" class="px-3 py-2 rounded-xl bg-[#FBF7F2] border text-sm" placeholder="%" />
               <button type="submit" class="btn-rose py-2 px-4 rounded-xl text-xs font-bold">+ نشر عرض</button>
             </form>
@@ -4839,7 +4839,7 @@
           const fd = new FormData(e.target);
           db.promotions.push({
             id: Date.now(), title: fd.get("title"), subtitle: "عرض جديد من إدارة لمسة",
-            discount_percent: Number(fd.get("discount_percent")), promo_code: fd.get("promo_code"),
+            discount_percent: Number(fd.get("discount_percent")), promo_code: "",
             provider_id: null, banner_type: "offer", is_active: true, expires_at: "2026-12-31"
           });
           saveDB(); renderMain(); showToast("تم نشر العرض");
