@@ -2188,13 +2188,13 @@ async function showDisputeDetail(id, box) {
     function renderHome() {
       const approvedProviders = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        return p.approval_status === "approved" && (u ? u.is_active : !!p.supabase_id) && !p.subscription_paused;
+        return p.approval_status === "approved" && !p.is_demo && (u ? u.is_active : !!p.supabase_id) && !p.subscription_paused;
       });
       const topProviders = [...approvedProviders].sort((a, b) => (b.is_promoted - a.is_promoted) || (b.avg_rating - a.avg_rating)).slice(0, 4);
       const nearbyProviders = approvedProviders.filter(p => p.city === db.selectedCity);
-      const latestWorks = [...db.portfolio].filter(w => { const pv = db.providerProfiles.find(p => p.id === w.provider_id); return !!pv && !pv.is_demo; }).reverse().slice(0, 4);
+      const latestWorks = [...db.portfolio].filter(w => { const pv = db.providerProfiles.find(p => p.id === w.provider_id); return !!pv && !pv.is_demo && pv.approval_status === "approved"; }).reverse().slice(0, 4);
       const activeCats = db.categories.filter(c => c.is_active);
-      const activePromos = db.promotions.filter(p => p.is_active);
+      const activePromos = db.promotions.filter(p => p.is_active && !(p.provider_id && (db.providerProfiles.find(x => x.id === p.provider_id) || {}).is_demo));
 
       return `
         <!-- Hero Banner -->
@@ -2262,7 +2262,7 @@ async function showDisputeDetail(id, box) {
         </section>
 
         <!-- Offers & Ads -->
-        <section class="max-w-7xl mx-auto px-4 py-6">
+        <section class="max-w-7xl mx-auto px-4 py-6 ${activePromos.length ? "" : "hidden"}">
           <h2 class="text-2xl font-extrabold text-[#4A332A] mb-5">العروض والتخفيضات</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             ${activePromos.map(pr => `
@@ -2393,7 +2393,7 @@ async function showDisputeDetail(id, box) {
       const f = appState.filters;
       const results = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        if (p.approval_status !== "approved" || !(u ? u.is_active : !!p.supabase_id) || p.subscription_paused) return false;
+        if (p.approval_status !== "approved" || p.is_demo || !(u ? u.is_active : !!p.supabase_id) || p.subscription_paused) return false;
         const pCountry = p.country || getCountryByCity(p.city);
         if (f.country && pCountry !== f.country) return false;
         if (f.city && p.city !== f.city) return false;
