@@ -713,23 +713,26 @@
       coreSyncInFlight = (async () => {
         try {
           const [{ data: remoteProviders, error: pe }, { data: remoteServices, error: se }] = await Promise.all([
-            supabaseClient.from("provider_profiles").select("*").eq("approval_status", "approved"),
-            supabaseClient.from("services").select("*").eq("is_active", true)
+            supabaseClient.from("service_providers").select("id, user_id, display_name, bio, service_categories, city, district, is_available, average_rating, avatar_url, verification_status"),
+            supabaseClient.from("service_offers").select("*").eq("status", "published")
           ]);
           if (pe || se) { console.warn("Supabase core read unavailable:", pe?.message || se?.message); return false; }
           const authToLocal = new Map(db.users.filter(u => u.auth_user_id).map(u => [u.auth_user_id, u.id]));
           (remoteProviders || []).forEach(row => {
-            let local = db.providerProfiles.find(x => x.supabase_id === row.id || x.auth_user_id === row.user_id);
-            const localUserId = authToLocal.get(row.user_id) || local?.user_id || null;
-            if (!local) { local = { id: remoteUiId(row.id), user_id: localUserId }; db.providerProfiles.push(local); }
-            Object.assign(local, { supabase_id: row.id, auth_user_id: row.user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: row.country || getCountryByCity(row.city || ""), city: row.city || "", region: row.region || getRegionByCity(row.city || ""), district: row.district || "", specialties: Array.isArray(row.specialties) ? row.specialties : (row.specialties || []), working_hours: row.working_hours || "", avatar_url: row.avatar_url || ASSETS.hero, approval_status: row.approval_status, subscription_tier: row.subscription_tier || "free", is_promoted: !!row.is_promoted, views_count: Number(row.views_count || 0), avg_rating: Number(row.avg_rating || 0), reviews_count: Number(row.reviews_count || 0), completed_bookings_count: Number(row.completed_bookings_count || 0), is_demo: false });
+            const localUserId0 = authToLocal.get(row.user_id) || null;
+            let local = db.providerProfiles.find(x => x.supabase_id === row.id || (row.user_id && x.auth_user_id === row.user_id) || (localUserId0 && x.user_id === localUserId0));
+            const localUserId = localUserId0 || local?.user_id || null;
+            if (!local) { local = { id: db.providerProfiles.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1, user_id: localUserId }; db.providerProfiles.push(local); }
+            const cityName = row.city || local.city || "";
+            Object.assign(local, { supabase_id: row.id, auth_user_id: row.user_id || local.auth_user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: getCountryByCity(cityName), city: cityName, region: getRegionByCity(cityName), district: row.district || "", specialties: Array.isArray(row.service_categories) ? row.service_categories : [], avatar_url: (row.avatar_url && /^https?:/.test(row.avatar_url)) ? row.avatar_url : (local.avatar_url || ASSETS.hero), approval_status: row.verification_status, is_available: row.is_available !== false, avg_rating: Number(row.average_rating || 0), is_demo: false });
           });
           (remoteServices || []).forEach(row => {
             const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id);
             if (!provider) return;
             let local = db.services.find(x => x.supabase_id === row.id);
-            if (!local) { local = { id: remoteUiId(row.id) }; db.services.push(local); }
-            Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: row.category_id, title: row.title, description: row.description || "", price_sar: Number(row.price_sar || 0), duration_min: Number(row.duration_min || 60), home_service: !!row.home_service, salon_service: !!row.salon_service });
+            if (!local) { local = { id: db.services.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1 }; db.services.push(local); }
+            const cat = (db.categories || []).find(c => c.slug === row.category);
+            Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: cat ? cat.id : (local.category_id || null), title: row.title, description: row.description || "", price_sar: Number(row.price || 0), currency: row.currency || "SAR", duration_min: Number(row.duration_minutes || 60), home_service: true, salon_service: true, is_active: true, is_demo: false });
           });
           const { data: authData } = await supabaseClient.auth.getUser();
           if (authData?.user?.id) {
@@ -747,16 +750,31 @@
       })();
       return coreSyncInFlight;
     }
+    const CURRENCY_BY_COUNTRY = { SA: "SAR", EG: "EGP", AE: "AED", SD: "SDG", KW: "KWD", QA: "QAR", BH: "BHD", OM: "OMR", JO: "JOD", LY: "LYD" };
+    async function ensureProviderRow(profile, authUserId) {
+      if (!supabaseClient || !authUserId || !profile) return null;
+      const fields = { display_name: profile.display_name, bio: profile.bio || "", service_categories: Array.isArray(profile.specialties) ? profile.specialties : [], city: profile.city || "", district: profile.district || "" };
+      const { data: existing, error: ee } = await supabaseClient.from("service_providers").select("id").eq("user_id", authUserId).maybeSingle();
+      if (ee) { console.warn("Supabase provider lookup failed:", ee.message); showToast("تعذر حفظ الملف على الخادم: " + ee.message, "error"); return null; }
+      let res;
+      if (existing?.id) res = await supabaseClient.from("service_providers").update(fields).eq("id", existing.id).select("id").maybeSingle();
+      else res = await supabaseClient.from("service_providers").insert({ user_id: authUserId, ...fields }).select("id").maybeSingle();
+      if (res.error) { console.warn("Supabase provider save failed:", res.error.message); showToast("تعذر حفظ الملف على الخادم: " + res.error.message, "error"); return null; }
+      const id = res.data?.id || existing?.id || null;
+      if (id) profile.supabase_id = id;
+      return id;
+    }
     async function persistProviderProfileToSupabase(profile, authUserId) {
-      if (!supabaseClient || !authUserId || !profile) return;
-      const { data, error } = await supabaseClient.from("provider_profiles").upsert({ user_id: authUserId, display_name: profile.display_name, bio: profile.bio || "", country: profile.country || "", city: profile.city || "", region: profile.region || getRegionByCity(profile.city || ""), district: profile.district || "", specialties: profile.specialties || [], working_hours: profile.working_hours || "", avatar_url: profile.avatar_url || null, approval_status: profile.approval_status || "pending", subscription_tier: profile.subscription_tier || "free", is_promoted: !!profile.is_promoted }, { onConflict: "user_id" }).select("id").maybeSingle();
-      if (error) console.warn("Supabase provider profile save failed:", error.message); else if (data?.id) profile.supabase_id = data.id;
+      await ensureProviderRow(profile, authUserId);
     }
     async function persistServiceToSupabase(service, providerProfile) {
-      const user = currentUser(); if (!supabaseClient || !user?.auth_user_id || !service || !providerProfile?.supabase_id) return;
-      const payload = { provider_id: providerProfile.supabase_id, category_id: service.category_id || null, title: service.title, description: service.description || "", price_sar: Number(service.price_sar || 0), duration_min: Number(service.duration_min || 60), home_service: !!service.home_service, salon_service: !!service.salon_service, is_active: true };
-      const result = service.supabase_id ? await supabaseClient.from("services").update(payload).eq("id", service.supabase_id).select("id").maybeSingle() : await supabaseClient.from("services").insert(payload).select("id").single();
-      if (result.error) console.warn("Supabase service save failed:", result.error.message); else if (result.data?.id) service.supabase_id = result.data.id;
+      const user = currentUser(); if (!supabaseClient || !user?.auth_user_id || !service || !providerProfile) return;
+      if (!providerProfile.supabase_id) await ensureProviderRow(providerProfile, user.auth_user_id);
+      if (!providerProfile.supabase_id) return;
+      const cat = (db.categories || []).find(c => c.id === service.category_id);
+      const payload = { provider_id: providerProfile.supabase_id, title: service.title, description: service.description || "", category: cat ? cat.slug : "other", price: Number(service.price_sar || 0), currency: CURRENCY_BY_COUNTRY[providerProfile.country || getCountryByCity(providerProfile.city || "")] || "SAR", duration_minutes: Number(service.duration_min || 60), status: "published" };
+      const result = service.supabase_id ? await supabaseClient.from("service_offers").update(payload).eq("id", service.supabase_id).select("id").maybeSingle() : await supabaseClient.from("service_offers").insert(payload).select("id").single();
+      if (result.error) { console.warn("Supabase service save failed:", result.error.message); showToast("تعذر حفظ الخدمة على الخادم: " + result.error.message, "error"); } else if (result.data?.id) service.supabase_id = result.data.id;
     }
     async function persistBookingToSupabase(booking, service, providerProfile) {
       const user = currentUser(); if (!supabaseClient || !user?.auth_user_id || !booking || !service?.supabase_id || !providerProfile?.supabase_id) return;
@@ -3667,7 +3685,7 @@
           p.district = fd.get("district"); p.working_hours = fd.get("working_hours");
           p.bio = fd.get("bio");
           void persistProviderProfileToSupabase(p, currentUser().auth_user_id);
-          saveDB(); renderMain(); showToast("تم حفظ الملف المهني");
+          saveDB(); renderMain(); showToast(p.approval_status === "approved" ? "تم حفظ الملف المهني" : "تم حفظ الملف المهني، وسيظهر للجميع بعد اعتماد الإدارة");
         };
       }
       const addSvcForm = document.getElementById("addServiceForm");
@@ -3683,8 +3701,7 @@
             duration_min: Number(fd.get("duration_min")), home_service: true, salon_service: true
           });
           void persistServiceToSupabase(db.services[db.services.length - 1], p);
-          void persistProviderProfileToSupabase(p, currentUser().auth_user_id);
-          saveDB(); renderMain(); showToast("تمت إضافة الخدمة");
+          saveDB(); renderMain(); showToast(p.approval_status === "approved" ? "تمت إضافة الخدمة" : "تم حفظ الخدمة، وستظهر للجميع بعد اعتماد الإدارة لحسابك");
         };
       }
       const addPortForm = document.getElementById("addPortfolioForm");
