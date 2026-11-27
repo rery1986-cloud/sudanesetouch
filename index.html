@@ -572,9 +572,7 @@
         ],
         trialConfig: {
           is_active: true,
-          months: 3,
-          start_date: "2026-11-15",
-          end_date: "2027-02-15"
+          months: 3
         },
         visualAds: [
           {
@@ -1189,6 +1187,7 @@
         country: profile.country || "",
         city: profile.city || "",
         region: profile.region || getRegionByCity(profile.city || ""),
+        signup_date: authUser.created_at || (existing && existing.signup_date) || null,
         district: profile.district || "",
         specialty: profile.specialty || "",
         store_name: profile.store_name || "",
@@ -2314,7 +2313,7 @@
 
           <!-- Commercial Suite: Plan, Promoted Ad, Commission & Demand Analytics -->
           ${(() => {
-            const isTrial = db.trialConfig && db.trialConfig.is_active;
+            const isTrial = isTrialActiveFor(user);
             const plan = SUBSCRIPTION_PLANS[p.subscription_tier] || SUBSCRIPTION_PLANS.free;
             const effectiveCommission = isTrial ? 0 : plan.commission;
             const completedBks = myBookings.filter(b => b.status === "completed");
@@ -3749,17 +3748,33 @@
       `;
     }
 
+    function getTrialEndDate(user) {
+      const tc = db.trialConfig || { months: 3 };
+      if (!user || !user.signup_date) return null;
+      const d = new Date(user.signup_date); if (isNaN(d.getTime())) return null;
+      d.setMonth(d.getMonth() + (Number(tc.months) || 3));
+      return d.toLocaleDateString("en-CA");
+    }
+    function isTrialActiveFor(user) {
+      const tc = db.trialConfig; if (!tc || !tc.is_active) return false;
+      const end = getTrialEndDate(user); if (!end) return true;
+      return new Date().toLocaleDateString("en-CA") <= end;
+    }
     function renderTrialBanner() {
       const el = document.getElementById("trialBanner");
       if (!el) return;
-      const tc = db.trialConfig || { is_active: true, months: 3, end_date: "2027-02-15" };
+      const tc = db.trialConfig || { is_active: true, months: 3 };
       if (!tc.is_active) { el.innerHTML = ""; return; }
+      const trialMe = currentUser();
+      const trialUser = trialMe && ["client", "provider", "merchant"].includes(trialMe.role) ? trialMe : null;
+      const trialEnd = getTrialEndDate(trialUser);
+      if (trialEnd && !isTrialActiveFor(trialUser)) { el.innerHTML = ""; return; }
       el.innerHTML = `
         <div class="bg-gradient-to-l from-[#6D1A36] via-[#8B2447] to-[#6D1A36] text-white text-xs sm:text-sm py-2.5 px-4 border-b border-[#C89D54]/50">
           <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 font-bold">
               <span>🎁</span>
-              <span>فترة تجريبية مجانية بالكامل لمدة ${tc.months} أشهر (حتى ${tc.end_date}) — عمولة 0% على الحجوزات + الباقة الماسية والإعلانات المميزة مجاناً!</span>
+              <span>فترة تجريبية مجانية بالكامل لمدة ${tc.months} أشهر ${trialEnd ? "(حتى " + trialEnd + ")" : "من تاريخ تسجيلك"} — عمولة 0% على الحجوزات + الباقة الماسية والإعلانات المميزة مجاناً!</span>
             </div>
             <button data-nav="explore" class="nav-btn px-3 py-1 rounded-full bg-[#EFE0C3] text-[#4A332A] text-xs font-extrabold hover:bg-white transition">ابدئي التجربة مجاناً</button>
           </div>
@@ -3859,7 +3874,7 @@
       const trialBtn = document.getElementById("toggleTrialBtn");
       if (trialBtn) {
         trialBtn.onclick = () => {
-          db.trialConfig = db.trialConfig || { is_active: true, months: 3, start_date: "2026-11-15", end_date: "2027-02-15" };
+          db.trialConfig = db.trialConfig || { is_active: true, months: 3 };
           db.trialConfig.is_active = !db.trialConfig.is_active;
           saveDB();
           renderMain();
