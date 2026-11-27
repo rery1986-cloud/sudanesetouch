@@ -702,6 +702,69 @@
       }
     }
 
+    const CORE_REMOTE_ID_OFFSET = 1000000000;
+    let coreSyncInFlight = null;
+    function remoteUiId(rawId) { const n = Number(rawId); return Number.isFinite(n) ? CORE_REMOTE_ID_OFFSET + n : rawId; }
+    async function sha256Hex(value) { const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)); return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join(""); }
+    function createSecureInviteToken() { const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join(""); }
+    async function syncCoreDataFromSupabase() {
+      if (!supabaseClient) return false;
+      if (coreSyncInFlight) return coreSyncInFlight;
+      coreSyncInFlight = (async () => {
+        try {
+          const [{ data: remoteProviders, error: pe }, { data: remoteServices, error: se }] = await Promise.all([
+            supabaseClient.from("provider_profiles").select("*").eq("approval_status", "approved"),
+            supabaseClient.from("services").select("*").eq("is_active", true)
+          ]);
+          if (pe || se) { console.warn("Supabase core read unavailable:", pe?.message || se?.message); return false; }
+          const authToLocal = new Map(db.users.filter(u => u.auth_user_id).map(u => [u.auth_user_id, u.id]));
+          (remoteProviders || []).forEach(row => {
+            let local = db.providerProfiles.find(x => x.supabase_id === row.id || x.auth_user_id === row.user_id);
+            const localUserId = authToLocal.get(row.user_id) || local?.user_id || null;
+            if (!local) { local = { id: remoteUiId(row.id), user_id: localUserId }; db.providerProfiles.push(local); }
+            Object.assign(local, { supabase_id: row.id, auth_user_id: row.user_id, user_id: localUserId, display_name: row.display_name, bio: row.bio || "", country: row.country || getCountryByCity(row.city || ""), city: row.city || "", region: row.region || getRegionByCity(row.city || ""), district: row.district || "", specialties: Array.isArray(row.specialties) ? row.specialties : (row.specialties || []), working_hours: row.working_hours || "", avatar_url: row.avatar_url || ASSETS.hero, approval_status: row.approval_status, subscription_tier: row.subscription_tier || "free", is_promoted: !!row.is_promoted, views_count: Number(row.views_count || 0), avg_rating: Number(row.avg_rating || 0), reviews_count: Number(row.reviews_count || 0), completed_bookings_count: Number(row.completed_bookings_count || 0), is_demo: false });
+          });
+          (remoteServices || []).forEach(row => {
+            const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id);
+            if (!provider) return;
+            let local = db.services.find(x => x.supabase_id === row.id);
+            if (!local) { local = { id: remoteUiId(row.id) }; db.services.push(local); }
+            Object.assign(local, { supabase_id: row.id, provider_id: provider.id, category_id: row.category_id, title: row.title, description: row.description || "", price_sar: Number(row.price_sar || 0), duration_min: Number(row.duration_min || 60), home_service: !!row.home_service, salon_service: !!row.salon_service });
+          });
+          const { data: authData } = await supabaseClient.auth.getUser();
+          if (authData?.user?.id) {
+            const { data: rows, error: be } = await supabaseClient.from("bookings").select("*").order("created_at", { ascending: false });
+            if (!be) (rows || []).forEach(row => {
+              const provider = db.providerProfiles.find(x => x.supabase_id === row.provider_id); if (!provider) return;
+              let local = db.bookings.find(x => x.supabase_id === row.id); if (!local) { local = { id: remoteUiId(row.id) }; db.bookings.push(local); }
+              Object.assign(local, { supabase_id: row.id, client_id: row.client_id === authData.user.id ? db.users.find(u => u.auth_user_id === authData.user.id)?.id : row.client_id, provider_id: provider.id, service_id: db.services.find(x => x.supabase_id === row.service_id)?.id || remoteUiId(row.service_id), booking_date: row.booking_date, booking_time: String(row.booking_time || "").slice(0,5), location_type: row.location_type, address: row.address, notes: row.notes || "", total_price_sar: Number(row.total_price_sar || 0), commission_sar: Number(row.commission_sar || 0), status: row.status, is_demo: false });
+            });
+          }
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+          return true;
+        } catch (error) { console.warn("Supabase core sync unavailable:", error); return false; }
+        finally { coreSyncInFlight = null; }
+      })();
+      return coreSyncInFlight;
+    }
+    async function persistProviderProfileToSupabase(profile, authUserId) {
+      if (!supabaseClient || !authUserId || !profile) return;
+      const { data, error } = await supabaseClient.from("provider_profiles").upsert({ user_id: authUserId, display_name: profile.display_name, bio: profile.bio || "", country: profile.country || "", city: profile.city || "", region: profile.region || getRegionByCity(profile.city || ""), district: profile.district || "", specialties: profile.specialties || [], working_hours: profile.working_hours || "", avatar_url: profile.avatar_url || null, approval_status: profile.approval_status || "pending", subscription_tier: profile.subscription_tier || "free", is_promoted: !!profile.is_promoted }, { onConflict: "user_id" }).select("id").maybeSingle();
+      if (error) console.warn("Supabase provider profile save failed:", error.message); else if (data?.id) profile.supabase_id = data.id;
+    }
+    async function persistServiceToSupabase(service, providerProfile) {
+      const user = currentUser(); if (!supabaseClient || !user?.auth_user_id || !service || !providerProfile?.supabase_id) return;
+      const payload = { provider_id: providerProfile.supabase_id, category_id: service.category_id || null, title: service.title, description: service.description || "", price_sar: Number(service.price_sar || 0), duration_min: Number(service.duration_min || 60), home_service: !!service.home_service, salon_service: !!service.salon_service, is_active: true };
+      const result = service.supabase_id ? await supabaseClient.from("services").update(payload).eq("id", service.supabase_id).select("id").maybeSingle() : await supabaseClient.from("services").insert(payload).select("id").single();
+      if (result.error) console.warn("Supabase service save failed:", result.error.message); else if (result.data?.id) service.supabase_id = result.data.id;
+    }
+    async function persistBookingToSupabase(booking, service, providerProfile) {
+      const user = currentUser(); if (!supabaseClient || !user?.auth_user_id || !booking || !service?.supabase_id || !providerProfile?.supabase_id) return;
+      const payload = { client_id: user.auth_user_id, provider_id: providerProfile.supabase_id, service_id: service.supabase_id, booking_date: booking.booking_date, booking_time: booking.booking_time, location_type: booking.location_type, address: booking.address, notes: booking.notes || "", total_price_sar: Number(booking.total_price_sar || 0), commission_sar: Number(booking.commission_sar || 0), status: booking.status || "pending", is_demo: false };
+      const result = booking.supabase_id ? await supabaseClient.from("bookings").update(payload).eq("id", booking.supabase_id).select("id").maybeSingle() : await supabaseClient.from("bookings").insert(payload).select("id").single();
+      if (result.error) console.warn("Supabase booking save failed:", result.error.message); else if (result.data?.id) booking.supabase_id = result.data.id;
+    }
+    async function persistBookingUpdateToSupabase(booking) { if (!supabaseClient || !booking?.supabase_id) return; const { error } = await supabaseClient.from("bookings").update({ status: booking.status }).eq("id", booking.supabase_id); if (error) console.warn("Supabase booking status update failed:", error.message); }
     async function loadSupabaseDB() {
       if (!supabaseClient || !verifiedAdminUserId) return;
       try {
@@ -904,6 +967,7 @@
         });
       }
       db.currentUserId = nextId;
+      await syncCoreDataFromSupabase();
       await saveDB();
       return appUser;
     }
@@ -1010,49 +1074,37 @@
     }
 
     function showAcceptInviteModal(token) {
-      const m = db.users.find(u => u.role === "moderator" && (u.invite_token === token || ("inv_" + u.id) === token));
-      if (!m) {
-        showToast("رابط الدعوة غير صالح أو تم حذف الحساب", "error");
-        return;
-      }
+      if (!supabaseClient) return showToast("خدمة المصادقة غير متاحة حالياً", "error");
       openModal(`
-        <h2 class="text-xl font-extrabold text-[#4A332A] mb-1">🛡️ قبول دعوة الانضمام كأدمن في لمسة</h2>
-        <p class="text-xs text-[#735447] mb-4">مرحباً <strong>${esc(m.full_name)}</strong> (${esc(m.email)}) — عيّني كلمة مروركِ الخاصة وأكّديها لتفعيل حسابكِ والدخول للوحة الإدارة.</p>
+        <h2 class="text-xl font-extrabold text-[#4A332A] mb-1">🛡️ قبول دعوة المشرفة الإقليمية</h2>
+        <p class="text-xs text-[#735447] mb-4">أدخلي البريد الذي استلم الدعوة وأنشئي كلمة مرور لحساب Supabase. لن تُحفظ كلمة المرور في المتصفح.</p>
         <form id="acceptInviteForm" class="space-y-3">
-          <div>
-            <label class="block text-xs font-bold mb-1">رقم الجوال</label>
-            <input name="phone" value="${esc(m.phone_private || "")}" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="+9665..." />
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1">كلمة المرور الجديدة</label>
-            <input name="pwd" type="password" minlength="6" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="6 أحرف فأكثر" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1">تأكيد كلمة المرور الجديدة</label>
-            <input name="confirm_pwd" type="password" minlength="6" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="أعيدي كتابة كلمة المرور" />
-          </div>
-          <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">تفعيل الحساب والدخول للوحة الإدارة</button>
+          <input name="email" type="email" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="البريد الإلكتروني المدعو" />
+          <input name="phone" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="رقم الجوال" />
+          <input name="pwd" type="password" minlength="6" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="كلمة المرور (6 أحرف فأكثر)" />
+          <input name="confirm_pwd" type="password" minlength="6" required class="w-full px-3 py-2 rounded-xl bg-white border text-sm" placeholder="تأكيد كلمة المرور" />
+          <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">إنشاء الحساب وتفعيل الدعوة</button>
         </form>
       `);
-      document.getElementById("acceptInviteForm").onsubmit = e => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const pwd = fd.get("pwd");
-        const cpwd = fd.get("confirm_pwd");
-        if (pwd !== cpwd) {
-          showToast("كلمتا المرور غير متطابقتين", "error");
-          return;
-        }
-        m.phone_private = fd.get("phone").trim();
-        m.password = pwd;
-        m.is_active = true;
-        m.invite_accepted = true;
-        db.currentUserId = m.id;
-        saveDB();
-        closeModal();
-        try { if (window.location.hash.startsWith("#invite=")) history.replaceState(null, "", window.location.pathname + window.location.search); } catch (err) {}
-        navigate("dashboard");
-        showToast("تم تفعيل حساب الأدمن وتسجيل دخولكِ بنجاح 🛡️");
+      document.getElementById("acceptInviteForm").onsubmit = async e => {
+        e.preventDefault(); const fd = new FormData(e.target); const email = String(fd.get("email") || "").trim().toLowerCase(); const phone = String(fd.get("phone") || "").trim(); const pwd = String(fd.get("pwd") || "");
+        if (pwd !== String(fd.get("confirm_pwd") || "")) return showToast("كلمتا المرور غير متطابقتين", "error");
+        const submit = e.target.querySelector("button[type=submit]"); submit.disabled = true;
+        try {
+          let authUser = (await supabaseClient.auth.getUser()).data?.user;
+          if (authUser && authUser.email?.toLowerCase() !== email) { await supabaseClient.auth.signOut(); authUser = null; }
+          if (!authUser) {
+            const signUp = await supabaseClient.auth.signUp({ email, password: pwd, options: { data: { role: "client", full_name: "مشرفة إقليمية", phone } } });
+            if (!signUp.error && signUp.data?.session) authUser = signUp.data.user;
+            else if (!signUp.error && !signUp.data?.session) return showToast("تم إنشاء الحساب. أكدي بريدك الإلكتروني ثم افتحي رابط الدعوة مجدداً لإكمال التفعيل.", "warn");
+            else { const signIn = await supabaseClient.auth.signInWithPassword({ email, password: pwd }); if (signIn.error) throw signIn.error; authUser = signIn.data.user; }
+          }
+          const { error } = await supabaseClient.rpc("accept_moderator_invitation", { p_token: token }); if (error) throw error;
+          const appUser = await activateSupabaseUser(authUser); if (!appUser || appUser.role !== "moderator") throw new Error("تعذر تحميل ملف المشرفة بعد قبول الدعوة");
+          closeModal(); try { if (window.location.hash.startsWith("#invite=")) history.replaceState(null, "", window.location.pathname + window.location.search); } catch (err) {}
+          renderHeader(); renderMain(); showToast("تم تفعيل حساب المشرفة وتسجيل الدخول عبر Supabase بنجاح 🛡️");
+        } catch (error) { console.error("Moderator invitation acceptance failed:", error); showToast(error.message || "تعذر قبول الدعوة. تحققي من البريد وصلاحية الرابط.", "error"); }
+        finally { submit.disabled = false; }
       };
     }
 
@@ -3078,7 +3130,7 @@
           <button type="submit" class="btn-rose w-full py-2.5 rounded-xl font-bold text-sm">إرسال طلب الحجز</button>
         </form>
       `);
-      document.getElementById("bookingForm").onsubmit = e => {
+      document.getElementById("bookingForm").onsubmit = async e => {
         e.preventDefault();
         const fd = new FormData(e.target);
         const bid = Math.max(0, ...db.bookings.map(b => b.id)) + 1;
@@ -3094,6 +3146,7 @@
           id: Date.now(), user_id: prov.user_id,
           title: "طلب حجز جديد", body: `لديك طلب حجز جديد على ${svc.title} من ${user.full_name}`, is_read: false
         });
+        void persistBookingToSupabase(db.bookings[db.bookings.length - 1], svc, prov);
         saveDB();
         closeModal();
         navigate("dashboard");
@@ -3599,6 +3652,7 @@
             }
             db.notifications.push({ id: Date.now(), user_id: bk.client_id, title: "تحديث الحجز", body: `تم تحديث حالة حجزك إلى: ${BOOKING_STATUS_MAP[bk.status].label}`, is_read: false });
           }
+          void persistBookingUpdateToSupabase(bk);
           saveDB(); renderMain(); showToast("تم تحديث حالة الحجز");
         };
       });
@@ -3612,6 +3666,7 @@
             p.city = fd.get("city");
           p.district = fd.get("district"); p.working_hours = fd.get("working_hours");
           p.bio = fd.get("bio");
+          void persistProviderProfileToSupabase(p, currentUser().auth_user_id);
           saveDB(); renderMain(); showToast("تم حفظ الملف المهني");
         };
       }
@@ -3627,6 +3682,8 @@
             description: fd.get("description"), price_sar: Number(fd.get("price_sar")),
             duration_min: Number(fd.get("duration_min")), home_service: true, salon_service: true
           });
+          void persistServiceToSupabase(db.services[db.services.length - 1], p);
+          void persistProviderProfileToSupabase(p, currentUser().auth_user_id);
           saveDB(); renderMain(); showToast("تمت إضافة الخدمة");
         };
       }
@@ -4041,44 +4098,19 @@
       if (modCityInput) modCityInput.onchange = () => { if (regionInput) regionInput.value = getRegionByCity(modCityInput.value); };
       const addModForm = document.getElementById("adminAddModForm");
       if (addModForm) {
-        addModForm.onsubmit = (e) => {
-          e.preventDefault();
-          const me = currentUser();
-          if (!me || me.role !== "admin") {
-            showToast("صلاحية إضافة الأدمنز حصرية لمديرة النظام فقط", "error");
-            return;
-          }
+        addModForm.onsubmit = async e => {
+          e.preventDefault(); const me = currentUser();
+          if (!me || me.role !== "admin") return showToast("صلاحية إضافة الأدمنز حصرية لمديرة النظام فقط", "error");
+          if (!supabaseClient) return showToast("خدمة Supabase غير متاحة حالياً", "error");
           const email = document.getElementById("modEmailInput").value.trim().toLowerCase();
-          if (db.users.some(u => u.email.toLowerCase() === email)) {
-            showToast("هذا البريد الإلكتروني مسجل مسبقاً", "error");
-            return;
-          }
           const perms = Array.from(addModForm.querySelectorAll('input[name="mod_perm"]:checked')).map(c => c.value);
-          const nextUid = db.users.length ? Math.max(...db.users.map(u => Number(u.id) || 0)) + 1 : 200;
-          const token = "inv_" + nextUid + "_" + Math.random().toString(36).slice(2, 8);
-          const fullName = document.getElementById("modNameInput").value.trim();
-          const country = document.getElementById("modCountryInput").value || "SA";
-          const city = document.getElementById("modCityInput").value.trim() || getCitiesByCountry(country)[0];
-          const region = getRegionByCity(city);
-          db.users.push({
-            id: nextUid,
-            full_name: fullName,
-            email,
-            phone_private: document.getElementById("modPhoneInput").value.trim(),
-            country,
-            city,
-            region,
-            password: null,
-            role: "moderator",
-            permissions: perms,
-            invite_token: token,
-            is_active: true
-          });
-          appState.lastModInvite = { name: fullName, url: getInviteUrl(token) };
-          saveDB();
-          renderMain();
-          showToast("تمت إضافة الأدمن وتوليد رابط الدعوة بنجاح 🛡️");
-        };
+          const fullName = document.getElementById("modNameInput").value.trim(); const phone = document.getElementById("modPhoneInput").value.trim();
+          const country = document.getElementById("modCountryInput").value || "SA"; const city = document.getElementById("modCityInput").value.trim() || getCitiesByCountry(country)[0]; const region = getRegionByCity(city);
+          const token = createSecureInviteToken(); const tokenHash = await sha256Hex(token);
+          const { data, error } = await supabaseClient.rpc("create_moderator_invitation", { p_email: email, p_full_name: fullName, p_phone_private: phone, p_country: country, p_city: city, p_region: region, p_permissions: perms, p_token_hash: tokenHash });
+          if (error) { console.error("Moderator invitation creation failed:", error); return showToast(error.message || "تعذر إنشاء الدعوة من Supabase", "error"); }
+          appState.lastModInvite = { name: fullName, url: getInviteUrl(token), expires_at: data?.[0]?.expires_at || null }; renderMain(); showToast("تم إنشاء دعوة مشرفة آمنة من Supabase، وصلاحيتها 72 ساعة 🛡️");
+        }
       }
       const copyLastBtn = document.getElementById("copyLastInviteBtn");
       if (copyLastBtn) {
@@ -4104,7 +4136,7 @@
         };
       });
       document.querySelectorAll(".open-invite-btn").forEach(b => {
-        b.onclick = () => showAcceptInviteModal(b.dataset.openInvite);
+        b.onclick = () => showToast("هذه دعوة قديمة محلية؛ أنشئي دعوة جديدة من Supabase", "warn");
       });
       document.querySelectorAll(".del-mod-btn").forEach(b => {
         b.onclick = () => {
@@ -4234,6 +4266,7 @@
     // Boot
     renderHeader();
     renderMain();
+    void syncCoreDataFromSupabase().then(changed => { if (changed) { renderHeader(); renderMain(); } });
     initializeAdminAuth();
   </script>
 </body>
