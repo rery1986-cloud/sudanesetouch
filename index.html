@@ -699,6 +699,21 @@
       chatWithUserId: null
     };
 
+    async function loadAdminNotifBox() {
+      const box = document.getElementById("adminNotifBox");
+      if (!box || !supabaseClient) return;
+      const { data, error } = await supabaseClient.from("admin_notifications").select("id, title, body, created_at, read_at").order("created_at", { ascending: false }).limit(30);
+      if (error) { box.textContent = "الإشعارات غير متاحة بعد (" + error.message + ")"; return; }
+      const unread = (data || []).filter(n => !n.read_at).length;
+      box.innerHTML = '<div class="flex items-center justify-between mb-2"><strong class="text-sm text-[#4A332A]">🔔 إشعارات التسجيل الجديد (' + unread + ' غير مقروء)</strong><button id="admNotifReadAll" class="px-3 py-1 rounded-xl bg-[#4A332A] text-white text-[11px] font-bold">تعليم الكل كمقروء</button></div>'
+        + ((data || []).length ? (data || []).map(n => '<div class="py-1.5 border-t border-[#E8DACA] ' + (n.read_at ? 'opacity-60' : 'font-bold') + '">' + esc(n.title) + '<div class="font-normal text-[11px]">' + esc(n.body || "") + ' • ' + esc(new Date(n.created_at).toLocaleString("ar")) + '</div></div>').join("") : "لا توجد إشعارات بعد.");
+      const btn = document.getElementById("admNotifReadAll");
+      if (btn) btn.onclick = async () => {
+        const { error: ue } = await supabaseClient.from("admin_notifications").update({ read_at: new Date().toISOString() }).is("read_at", null);
+        if (ue) return showToast("تعذر التحديث: " + ue.message, "error");
+        void loadAdminNotifBox();
+      };
+    }
     async function saveDB() {
       db = shrinkEmbeddedAssets(db);
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
@@ -953,6 +968,7 @@
 
       verifiedAdminUserId = authUser.id;
       await loadSupabaseDB();
+      try { await syncCoreDataFromSupabase(); } catch (e) { console.warn("admin sync failed", e); }
       let adminUser = db.users.find(user => user.email?.toLowerCase() === ADMIN_EMAIL);
       if (!adminUser) {
         const nextId = db.users.reduce((max, user) => Math.max(max, Number(user.id) || 0), 0) + 1;
@@ -2681,6 +2697,7 @@
               <button type="submit" class="sm:col-span-6 btn-primary py-2 rounded-xl text-xs font-extrabold">+ إضافة مقدمة خدمة جديدة</button>
             </form>
 
+            <div id="adminNotifBox" class="p-4 rounded-2xl bg-[#FFF8E7] border border-[#C89D54]/40 text-xs text-[#735447]">جاري تحميل إشعارات التسجيل...</div>
             <div class="space-y-3">
               ${db.providerProfiles.map(p => {
                 const u = db.users.find(x => x.id === p.user_id);
@@ -3761,11 +3778,17 @@
         b.onclick = () => { const w0 = db.portfolio.find(w => w.id === Number(b.dataset.delWork)); if (w0?.supabase_id && supabaseClient) void supabaseClient.from("portfolio_items").delete().eq("id", w0.supabase_id).then(r => { if (r.error) showToast("تعذر الحذف من الخادم: " + r.error.message, "error"); }); db.portfolio = db.portfolio.filter(w => w.id !== Number(b.dataset.delWork)); saveDB(); renderMain(); };
       });
 
+      if (document.getElementById("adminNotifBox")) void loadAdminNotifBox();
       // Admin actions
       document.querySelectorAll(".adm-prov-btn").forEach(b => {
-        b.onclick = () => {
+        b.onclick = async () => {
           const p = db.providerProfiles.find(x => x.id === Number(b.dataset.admProv));
-          if (p) p.approval_status = b.dataset.admSt;
+          if (!p) return;
+          if (p.supabase_id && supabaseClient) {
+            const { error } = await supabaseClient.rpc("set_provider_status", { p_provider_id: p.supabase_id, p_status: b.dataset.admSt });
+            if (error) { console.warn("set_provider_status failed:", error.message); return showToast("تعذر تحديث الحالة على الخادم: " + error.message, "error"); }
+          }
+          p.approval_status = b.dataset.admSt;
           saveDB(); renderMain(); showToast("تم تحديث حالة اعتماد الخبيرة");
         };
       });
