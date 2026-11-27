@@ -1,0 +1,1 @@
+الملفات 20261127000000 و 20261127000001 و 20261127000002 قديمة ولا تُشغَّل: قاعدة البيانات الحية تستخدم جداول مختلفة (profiles, customers, service_providers, merchants, service_offers, bookings, advertisements, admin_accounts). لا تعدّل أي ملف آخر ولا index.html.
