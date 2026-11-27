@@ -2166,7 +2166,7 @@ async function showDisputeDetail(id, box) {
           <button id="logoutBtn" class="px-3 py-2 rounded-xl border border-[#C98E88] text-[#A96B65] text-xs font-bold hover:bg-[#C98E88] hover:text-white transition">خروج</button>
         `;
         document.getElementById("notifBtn").onclick = user.role === "admin" ? showAdminNotifModal : showNotificationsModal;
-        document.getElementById("chatInboxBtn").onclick = showChatInbox; if (user.role === "admin") { void refreshAdminNotifUnread(); if (!admNotifTimer) admNotifTimer = setInterval(() => void refreshAdminNotifUnread(), 30000); }
+        document.getElementById("chatInboxBtn").onclick = () => navigate("messages", { msgCid: null, msgTitle: null }); if (user.role === "admin") { void refreshAdminNotifUnread(); if (!admNotifTimer) admNotifTimer = setInterval(() => void refreshAdminNotifUnread(), 30000); }
         refreshChatUnread();
         document.getElementById("goDashBtn").onclick = () => navigate("dashboard");
         document.getElementById("logoutBtn").onclick = async () => {
@@ -4420,7 +4420,7 @@ async function showDisputeDetail(id, box) {
       const r = await supabaseClient.rpc("start_conversation", { p_provider_id: providerSbId });
       if (r.error || !r.data) { showToast("تعذر فتح المحادثة: " + (r.error ? r.error.message : ""), "error"); return; }
       const prov = db.providerProfiles.find(x => x.supabase_id === providerSbId);
-      openConversation(r.data, prov ? prov.display_name : "الخبيرة");
+      navigate("messages", { msgCid: r.data, msgTitle: prov ? prov.display_name : "الخبيرة" });
     }
     async function openConversation(cid, title, staff) {
       const me = chatMe(); if (!supabaseClient || !me) return;
@@ -4448,6 +4448,83 @@ async function showDisputeDetail(id, box) {
         inp.disabled = false;
         if (ins.error) { showToast("تعذر إرسال الرسالة: " + ins.error.message, "error"); return; }
         if (!box.querySelector(".p-2\\.5")) box.innerHTML = "";
+        chatAppend(box, ins.data, me); inp.value = ""; inp.focus();
+      };
+    }
+    async function renderMessagesPage() {
+      const root = document.getElementById("msgPage"); if (!root) return;
+      const me = chatMe();
+      if (!currentUser()) { root.innerHTML = '<p class="p-6 text-sm text-[#735447]">سجّلي الدخول لرؤية رسائلك.</p>'; return; }
+      if (!supabaseClient || !me) { root.innerHTML = '<p class="p-6 text-sm text-[#735447]">سجّلي الدخول بحسابك الحقيقي لرؤية الرسائل.</p>'; return; }
+      if (appState.msgCid) return openMsgThread(root, me, appState.msgCid, appState.msgTitle || "المحادثة");
+      root.innerHTML = '<div class="glass-card rounded-3xl p-5 space-y-3"><h2 class="text-xl font-extrabold text-[#4A332A]">💬 رسائلي</h2><div id="msgList" class="space-y-2"><p class="text-sm text-[#735447]">جارٍ التحميل...</p></div></div>';
+      const [cv, ms, nm, sc] = await Promise.all([
+        supabaseClient.from("conversations").select("id, customer_user_id, provider_user_id, provider_id, last_message_at, kind").order("last_message_at", { ascending: false }).limit(50),
+        supabaseClient.from("messages").select("id, conversation_id, sender_id, body, created_at, read_at").order("created_at", { ascending: false }).limit(300),
+        supabaseClient.rpc("my_chat_names"), supabaseClient.rpc("my_staff_chats")
+      ]);
+      if (document.getElementById("msgPage") !== root || appState.msgCid) return;
+      const list = document.getElementById("msgList"); if (!list) return;
+      if (cv.error) { list.textContent = "تعذر التحميل: " + cv.error.message; return; }
+      if (!cv.data.length) { list.innerHTML = '<p class="text-sm text-[#735447]">لا توجد محادثات بعد. افتحي صفحة خبيرة واضغطي مراسلة.</p>'; return; }
+      const nameMap = {}; (Array.isArray(nm.data) ? nm.data : []).forEach(x => { nameMap[x.id] = x; });
+      const staffMap = {}; (Array.isArray(sc.data) ? sc.data : []).forEach(x => { staffMap[x.id] = x.other_name; });
+      const last = {}, unread = {};
+      (ms.data || []).forEach(m => { if (!last[m.conversation_id]) last[m.conversation_id] = m; if (!m.read_at && m.sender_id !== me) unread[m.conversation_id] = (unread[m.conversation_id] || 0) + 1; });
+      list.innerHTML = "";
+      cv.data.forEach(c => {
+        const nmx = nameMap[c.id];
+        const name = c.kind === "staff" ? "💼 " + (staffMap[c.id] || "فريق العمل") : (nmx && nmx.other_name ? nmx.other_name + (nmx.other_city ? " (" + nmx.other_city + ")" : "") : "محادثة");
+        const lm = last[c.id]; const un = unread[c.id] || 0;
+        const b = document.createElement("button"); b.type = "button";
+        b.className = "w-full text-right p-3 rounded-2xl bg-white border border-[#E8DACA] hover:bg-[#F3EAE0] flex items-center gap-3";
+        const av = document.createElement("div"); av.className = "w-10 h-10 shrink-0 rounded-full bg-[#EFE0C3] text-[#4A332A] font-extrabold flex items-center justify-center"; av.textContent = (name.replace(/^[^\p{L}]+/u, "")[0] || "💬");
+        const mid = document.createElement("div"); mid.className = "min-w-0 flex-1";
+        const t1 = document.createElement("div"); t1.className = "font-bold text-sm text-[#4A332A] truncate"; t1.textContent = name;
+        const t2 = document.createElement("div"); t2.className = "text-xs text-[#735447] truncate"; t2.textContent = lm ? (lm.sender_id === me ? "أنتِ: " : "") + lm.body : "ابدئي المحادثة";
+        mid.appendChild(t1); mid.appendChild(t2);
+        const side = document.createElement("div"); side.className = "shrink-0 text-[10px] text-[#735447] flex flex-col items-end gap-1";
+        const tm = document.createElement("span"); tm.textContent = chatTime(c.last_message_at); side.appendChild(tm);
+        if (un) { const bd = document.createElement("span"); bd.className = "min-w-5 h-5 px-1 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center"; bd.textContent = un; side.appendChild(bd); }
+        b.appendChild(av); b.appendChild(mid); b.appendChild(side);
+        b.onclick = () => { appState.msgCid = c.id; appState.msgTitle = name; void renderMessagesPage(); };
+        list.appendChild(b);
+      });
+    }
+    async function openMsgThread(root, me, cid, title) {
+      root.innerHTML = '<div class="glass-card rounded-3xl overflow-hidden flex flex-col"><div class="flex items-center gap-3 p-4 border-b border-[#E8DACA]"><button type="button" id="msgBackBtn" class="px-3 py-1.5 rounded-xl bg-[#EFE0C3] text-[#4A332A] text-xs font-bold">← الرسائل</button><h2 class="font-extrabold text-[#4A332A] text-base truncate">' + esc(title) + '</h2></div><div id="msgWho" class="hidden"></div><div id="chatMsgs" data-cid="' + esc(cid) + '" class="space-y-2 p-4 overflow-y-auto bg-white" style="height:60vh"><p class="text-xs text-[#735447] text-center">جارٍ التحميل...</p></div><form id="msgPageForm" class="flex gap-2 p-3 border-t border-[#E8DACA]"><input name="content" required maxlength="2000" autocomplete="off" placeholder="اكتبي رسالتك..." class="flex-1 px-3 py-2 rounded-xl bg-white border text-sm" /><button type="submit" class="btn-primary px-4 py-2 rounded-xl text-xs font-bold">إرسال</button></form></div>';
+      document.getElementById("msgBackBtn").onclick = () => { appState.msgCid = null; appState.msgTitle = null; void renderMessagesPage(); void refreshChatUnread(); };
+      supabaseClient.rpc("my_chat_names").then(function (w) {
+        const row = (Array.isArray(w.data) ? w.data : []).find(function (x) { return x.id === cid; });
+        const el = document.getElementById("msgWho"); if (!row || !el) return;
+        const bits = []; if (row.other_city) bits.push("📍 " + row.other_city); if (row.other_district) bits.push(row.other_district);
+        if (row.other_phone) bits.push("📞 " + row.other_phone);
+        const av = row.other_avatar ? '<img src="' + esc(row.other_avatar) + '" alt="" class="w-12 h-12 rounded-full object-cover shrink-0" />' : '<div class="w-12 h-12 shrink-0 rounded-full bg-[#EFE0C3] text-[#4A332A] font-extrabold flex items-center justify-center">' + esc(String(row.other_name || "؟").charAt(0)) + '</div>';
+        el.className = "flex items-center gap-3 px-4 py-3 bg-[#FBF5EA] border-b border-[#E8DACA]";
+        el.innerHTML = av + '<div class="min-w-0"><div class="font-extrabold text-[#4A332A] text-sm truncate">' + esc(row.other_name || "") + '</div><div class="text-xs text-[#735447]">' + (bits.length ? esc(bits.join(" · ")) : "") + '</div>' + (row.other_phone ? "" : '<div class="text-[11px] text-[#735447]">الجوال يظهر بعد تأكيد الحجز</div>') + '</div>';
+      });
+      const box = document.getElementById("chatMsgs");
+      const r = await supabaseClient.from("messages").select("id, conversation_id, sender_id, body, created_at").eq("conversation_id", cid).order("created_at", { ascending: true }).limit(300);
+      if (document.getElementById("chatMsgs") !== box) return;
+      if (r.error) { box.textContent = "تعذر تحميل الرسائل: " + r.error.message; return; }
+      box.innerHTML = "";
+      if (!r.data.length) { box.dataset.empty = "1"; box.innerHTML = '<p class="text-xs text-[#735447] text-center">ابدئي المحادثة الآن</p>'; }
+      let prevDay = "";
+      r.data.forEach(m => {
+        const day = new Date(m.created_at).toLocaleDateString("ar-SA", { dateStyle: "medium" });
+        if (day !== prevDay) { prevDay = day; const dc = document.createElement("div"); dc.className = "text-center text-[10px] text-[#735447] py-1"; dc.textContent = day; box.appendChild(dc); }
+        chatAppend(box, m, me);
+      });
+      box.scrollTop = box.scrollHeight;
+      supabaseClient.rpc("mark_conversation_read", { p_conversation_id: cid }).then(refreshChatUnread);
+      document.getElementById("msgPageForm").onsubmit = async e => {
+        e.preventDefault();
+        const inp = e.target.elements.content; const body = inp.value.trim(); if (!body) return;
+        inp.disabled = true;
+        const ins = await supabaseClient.from("messages").insert({ conversation_id: cid, body }).select("id, conversation_id, sender_id, body, created_at").single();
+        inp.disabled = false;
+        if (ins.error) { showToast("تعذر إرسال الرسالة: " + ins.error.message, "error"); return; }
+        if (box.dataset.empty) { box.innerHTML = ""; delete box.dataset.empty; }
         chatAppend(box, ins.data, me); inp.value = ""; inp.focus();
       };
     }
@@ -4721,8 +4798,10 @@ async function showDisputeDetail(id, box) {
       else if (appState.route === "ad_detail") main.innerHTML = renderAdDetail();
       else if (appState.route === "dashboard") main.innerHTML = renderDashboard();
       else if (appState.route === "shop") main.innerHTML = renderShop();
+      else if (appState.route === "messages") main.innerHTML = '<div id="msgPage" class="max-w-3xl mx-auto"></div>';
       bindEvents();
       if (appState.route === "shop") void loadShop();
+      if (appState.route === "messages") void renderMessagesPage();
       if (document.getElementById("myProductsBox")) void loadMyProducts();
       if (document.getElementById("adminMerchantsBox")) void loadAdminMerchants();
       if (document.getElementById("adminPendingAdsBox")) void loadAdminPendingAds();
