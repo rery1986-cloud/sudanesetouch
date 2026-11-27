@@ -136,6 +136,7 @@
         <button data-nav="home" class="nav-btn px-3 py-2 rounded-xl hover:bg-[#F3EAE0] transition">الرئيسية</button>
         <button data-nav="explore" class="nav-btn px-3 py-2 rounded-xl hover:bg-[#F3EAE0] transition">استكشاف الخبيرات</button>
         <button data-nav="offers" class="nav-btn px-3 py-2 rounded-xl hover:bg-[#F3EAE0] transition">العروض</button>
+        <button data-nav="shop" class="nav-btn px-3 py-2 rounded-xl hover:bg-[#F3EAE0] transition">المتجر</button>
         <button data-nav="dashboard" id="navDashboardBtn" class="hidden nav-btn px-3 py-2 rounded-xl hover:bg-[#F3EAE0] transition">لوحة التحكم</button>
       </nav>
 
@@ -148,6 +149,7 @@
       <button data-nav="home" class="nav-btn px-2 py-1 rounded-lg">الرئيسية</button>
       <button data-nav="explore" class="nav-btn px-2 py-1 rounded-lg">الخبيرات</button>
       <button data-nav="offers" class="nav-btn px-2 py-1 rounded-lg">العروض</button>
+      <button data-nav="shop" class="nav-btn px-2 py-1 rounded-lg">المتجر</button>
       <button data-nav="dashboard" id="mobileDashboardBtn" class="hidden nav-btn px-2 py-1 rounded-lg text-[#B3746E]">لوحتي</button>
     </div>
   </header>
@@ -701,6 +703,150 @@
       chatWithUserId: null
     };
 
+    const MERCHANT_STATUS = { pending: "قيد المراجعة", approved: "معتمدة", rejected: "مرفوضة" };
+    let shopData = [];
+    async function loadMyProducts() {
+      const box = document.getElementById("myProductsBox"); const user = currentUser();
+      if (!box) return;
+      if (!supabaseClient || !user?.auth_user_id) { box.textContent = "سجّلي الدخول بحسابك الحقيقي لإدارة منتجاتك."; return; }
+      const mr = await supabaseClient.rpc("ensure_my_merchant", { p_business_name: user.store_name || user.full_name || "", p_city: user.city || "" });
+      const m = Array.isArray(mr.data) ? mr.data[0] : mr.data;
+      if (mr.error || !m) { box.textContent = "تعذر تجهيز حساب التاجرة: " + (mr.error ? mr.error.message : ""); return; }
+      const pr = await supabaseClient.from("products").select("id, name, description, category, price, currency, image_url, status").eq("merchant_id", m.id).order("created_at", { ascending: false }).limit(200);
+      if (pr.error) { box.textContent = "تعذر تحميل المنتجات: " + pr.error.message; return; }
+      const curs = Array.from(new Set(Object.values(CURRENCY_BY_COUNTRY)));
+      const defCur = CURRENCY_BY_COUNTRY[user.country] || "SAR";
+      const approved = m.verification_status === "approved";
+      box.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-lg font-extrabold text-[#4A332A]">🛍️ منتجاتي (${pr.data.length})</h2>
+          <span class="px-3 py-1 rounded-full text-xs font-bold ${approved ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}">حساب التاجرة: ${esc(MERCHANT_STATUS[m.verification_status] || m.verification_status)}</span>
+        </div>
+        ${approved ? "" : '<p class="text-xs text-[#735447]">يمكنك إضافة منتجاتك الآن، وستظهر للجميع في صفحة المتجر بعد اعتماد الإدارة لحسابك.</p>'}
+        <form id="prodAddForm" class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA] text-xs">
+          <input name="name" required maxlength="150" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border font-bold" placeholder="اسم المنتج" />
+          <input name="category" maxlength="60" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" placeholder="التصنيف (بخور، عبايات، إكسسوارات...)" />
+          <input name="price" type="number" min="0" step="0.01" required class="sm:col-span-2 px-3 py-2 rounded-xl bg-white border font-bold" placeholder="السعر" />
+          <select name="currency" class="sm:col-span-2 px-3 py-2 rounded-xl bg-white border font-bold">${curs.map(c => `<option value="${c}"${c === defCur ? " selected" : ""}>${c}</option>`).join("")}</select>
+          <input name="photo" type="file" accept="image/jpeg,image/png,image/webp" class="sm:col-span-2 text-[11px]" />
+          <textarea name="description" rows="2" maxlength="1000" class="sm:col-span-6 px-3 py-2 rounded-xl bg-white border" placeholder="وصف المنتج"></textarea>
+          <button type="submit" class="sm:col-span-6 btn-primary py-2 rounded-xl text-xs font-extrabold">+ إضافة المنتج</button>
+        </form>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          ${pr.data.map(p => `
+            <div class="p-3 rounded-2xl bg-white border space-y-2 ${p.status === "draft" ? "opacity-60" : ""}">
+              ${p.image_url ? `<img src="${esc(p.image_url)}" class="w-full h-36 object-cover rounded-xl" />` : ""}
+              <div class="font-extrabold text-sm text-[#4A332A]">${esc(p.name)}</div>
+              <div class="text-xs text-[#735447]">${esc(p.category || "")}</div>
+              <div class="text-sm font-bold text-[#6D1A36]">${esc(p.price)} ${esc(p.currency)}</div>
+              <div class="flex gap-2 text-[11px] font-bold">
+                <button data-prod-toggle="${esc(p.id)}" data-prod-st="${p.status === "published" ? "draft" : "published"}" class="prod-toggle-btn px-3 py-1 rounded-lg bg-[#EFE0C3]">${p.status === "published" ? "إخفاء" : "إظهار"}</button>
+                <button data-prod-del="${esc(p.id)}" class="prod-del-btn px-3 py-1 rounded-lg bg-rose-50 text-rose-700">حذف</button>
+              </div>
+            </div>`).join("") || '<p class="text-xs text-[#735447]">لا توجد منتجات بعد.</p>'}
+        </div>`;
+      document.getElementById("prodAddForm").onsubmit = async e => {
+        e.preventDefault();
+        const fd = new FormData(e.target); const btn = e.target.querySelector("button[type=submit]"); btn.disabled = true;
+        let imageUrl = null; const file = fd.get("photo");
+        if (file && file.size) {
+          if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { btn.disabled = false; return showToast("الصيغ المسموحة: JPG أو PNG أو WEBP فقط", "error"); }
+          if (file.size > 5 * 1024 * 1024) { btn.disabled = false; return showToast("حجم الصورة أكبر من 5 ميغابايت", "error"); }
+          const ext = file.type === "image/png" ? "png" : (file.type === "image/webp" ? "webp" : "jpg");
+          const path = user.auth_user_id + "/p" + Date.now() + "." + ext;
+          const up = await supabaseClient.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+          if (up.error) { btn.disabled = false; return showToast("تعذر رفع الصورة: " + up.error.message, "error"); }
+          imageUrl = supabaseClient.storage.from("media").getPublicUrl(path).data.publicUrl;
+        }
+        const ins = await supabaseClient.from("products").insert({ merchant_id: m.id, name: String(fd.get("name")).trim(), description: String(fd.get("description") || ""), category: String(fd.get("category") || ""), price: Number(fd.get("price")), currency: fd.get("currency"), image_url: imageUrl, status: "published" });
+        btn.disabled = false;
+        if (ins.error) return showToast("تعذر حفظ المنتج: " + ins.error.message, "error");
+        showToast(approved ? "تمت إضافة المنتج" : "تمت إضافة المنتج، وسيظهر بعد اعتماد الإدارة");
+        void loadMyProducts();
+      };
+      box.querySelectorAll(".prod-toggle-btn").forEach(b => { b.onclick = async () => {
+        const r = await supabaseClient.from("products").update({ status: b.dataset.prodSt }).eq("id", b.dataset.prodToggle);
+        if (r.error) return showToast("تعذر التحديث: " + r.error.message, "error"); void loadMyProducts(); }; });
+      box.querySelectorAll(".prod-del-btn").forEach(b => { b.onclick = async () => {
+        if (!confirm("حذف هذا المنتج؟")) return;
+        const r = await supabaseClient.from("products").delete().eq("id", b.dataset.prodDel);
+        if (r.error) return showToast("تعذر الحذف: " + r.error.message, "error"); void loadMyProducts(); }; });
+    }
+    function renderShop() {
+      return `
+        <section class="max-w-6xl mx-auto px-4 py-8 space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h1 class="text-2xl font-extrabold text-[#4A332A]">🛍️ المتجر</h1>
+            <input id="shopSearch" placeholder="ابحثي عن منتج..." class="px-3 py-2 rounded-xl bg-white border text-sm w-full sm:w-64" />
+          </div>
+          <div id="shopGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-sm text-[#735447]">جاري التحميل...</p></div>
+        </section>`;
+    }
+    function drawShop() {
+      const grid = document.getElementById("shopGrid"); if (!grid) return;
+      const q = (document.getElementById("shopSearch")?.value || "").trim().toLowerCase();
+      const list = shopData.filter(p => !q || (p.name + " " + (p.category || "") + " " + (p.description || "") + " " + (p.merchantName || "")).toLowerCase().includes(q));
+      grid.innerHTML = list.map(p => `
+        <div class="glass-card rounded-2xl overflow-hidden flex flex-col">
+          ${p.image_url ? `<img src="${esc(p.image_url)}" loading="lazy" class="w-full h-48 object-cover" />` : '<div class="w-full h-48 bg-gradient-to-br from-[#EFE0C3] to-[#D9B87C] flex items-center justify-center text-4xl">🛍️</div>'}
+          <div class="p-4 space-y-1.5 flex-1 flex flex-col">
+            <div class="font-extrabold text-[#4A332A]">${esc(p.name)}</div>
+            <div class="text-xs text-[#735447]">${esc(p.merchantName || "")}${p.merchantCity ? " · " + esc(p.merchantCity) : ""}${p.category ? " · " + esc(p.category) : ""}</div>
+            <div class="text-xs leading-relaxed text-[#4A332A] flex-1">${esc(p.description || "")}</div>
+            <div class="text-base font-extrabold text-[#6D1A36]">${esc(p.price)} ${esc(p.currency)}</div>
+            <button data-shop-mid="${esc(p.merchant_id)}" data-shop-name="${esc(p.merchantName || "التاجرة")}" class="shop-contact-btn btn-primary py-2 rounded-xl text-xs font-bold">📞 تواصلي مع التاجرة</button>
+          </div>
+        </div>`).join("") || '<p class="text-sm text-[#735447]">لا توجد منتجات معروضة بعد.</p>';
+      grid.querySelectorAll(".shop-contact-btn").forEach(b => { b.onclick = () => showMerchantContact(b.dataset.shopMid, b.dataset.shopName); });
+    }
+    async function loadShop() {
+      const search = document.getElementById("shopSearch"); if (search) search.oninput = drawShop;
+      if (!supabaseClient) return;
+      const pr = await supabaseClient.from("products").select("id, merchant_id, name, description, category, price, currency, image_url").eq("status", "published").order("created_at", { ascending: false }).limit(200);
+      const grid = document.getElementById("shopGrid");
+      if (pr.error) { if (grid) grid.textContent = "تعذر تحميل المتجر: " + pr.error.message; return; }
+      const ids = Array.from(new Set(pr.data.map(p => p.merchant_id)));
+      const names = {};
+      if (ids.length) {
+        const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, city").in("id", ids);
+        (mr.data || []).forEach(x => { names[x.id] = x; });
+      }
+      shopData = pr.data.map(p => ({ ...p, merchantName: names[p.merchant_id]?.business_name || names[p.merchant_id]?.display_name || "", merchantCity: names[p.merchant_id]?.city || "" }));
+      drawShop();
+    }
+    async function showMerchantContact(merchantId, name) {
+      const user = currentUser();
+      if (!user) { showToast("سجّلي الدخول للتواصل مع التاجرة", "warn"); return showLoginModal(); }
+      if (!supabaseClient || !user.auth_user_id) { showToast("سجّلي الدخول بحسابك الحقيقي للتواصل", "warn"); return; }
+      const r = await supabaseClient.rpc("get_merchant_contact", { p_merchant_id: merchantId });
+      if (r.error) return showToast("تعذر جلب وسيلة التواصل: " + r.error.message, "error");
+      const phone = String(r.data || "").trim();
+      if (!phone) return showToast("لم تضف التاجرة رقم تواصل بعد", "warn");
+      const digits = phone.replace(/[^0-9]/g, "");
+      openModal(`
+        <h2 class="text-lg font-extrabold text-[#4A332A] mb-2">التواصل مع ${esc(name)}</h2>
+        <p class="text-sm font-bold text-[#4A332A] mb-3" dir="ltr">${esc(phone)}</p>
+        <div class="flex flex-wrap gap-2">
+          <a href="https://wa.me/${esc(digits)}" target="_blank" rel="noopener" class="btn-primary px-4 py-2 rounded-xl text-xs font-bold">واتساب</a>
+          <a href="tel:${esc(phone)}" class="px-4 py-2 rounded-xl border border-[#4A332A] text-xs font-bold">اتصال</a>
+        </div>`);
+    }
+    async function loadAdminMerchants() {
+      const box = document.getElementById("adminMerchantsBox"); if (!box || !supabaseClient) return;
+      const r = await supabaseClient.rpc("admin_list_merchants", { p_status: null });
+      if (r.error) { box.textContent = "قائمة التاجرات غير متاحة: " + r.error.message; return; }
+      box.innerHTML = '<strong class="text-sm text-[#4A332A]">🛍️ التاجرات (' + r.data.length + ')</strong>' + (r.data.map(x => `
+        <div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-[#E8DACA]">
+          <div><span class="font-bold">${esc(x.business_name || x.display_name)}</span> <span class="text-[11px]">${esc(x.city || "")} · ${esc(MERCHANT_STATUS[x.verification_status] || x.verification_status)}</span></div>
+          <div class="flex gap-1.5">
+            ${["approved", "rejected", "pending"].filter(st => st !== x.verification_status).map(st => `<button data-mid="${esc(x.id)}" data-mst="${st}" class="adm-merch-btn px-3 py-1 rounded-lg bg-[#EFE0C3] text-[11px] font-bold">${st === "approved" ? "اعتماد" : st === "rejected" ? "رفض" : "إعادة للمراجعة"}</button>`).join("")}
+          </div>
+        </div>`).join("") || '<p class="mt-2">لا توجد تاجرات مسجلة بعد.</p>');
+      box.querySelectorAll(".adm-merch-btn").forEach(b => { b.onclick = async () => {
+        const rr = await supabaseClient.rpc("set_merchant_status", { p_merchant_id: b.dataset.mid, p_status: b.dataset.mst });
+        if (rr.error) return showToast("تعذر التحديث: " + rr.error.message, "error");
+        showToast("تم تحديث حالة التاجرة"); void loadAdminMerchants(); }; });
+    }
     async function loadAdminNotifBox() {
       const box = document.getElementById("adminNotifBox");
       if (!box || !supabaseClient) return;
@@ -2402,6 +2548,8 @@
             </div>
           </div>
 
+          <div id="myProductsBox" class="glass-card p-6 rounded-3xl space-y-4">جاري تحميل منتجاتي...</div>
+
           <div class="glass-card p-6 rounded-3xl space-y-4">
             <h2 class="text-lg font-extrabold text-[#4A332A]">+ إضافة إعلان / بازار جديد</h2>
             <form id="merchantAddAdForm" class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA] text-xs">
@@ -2729,6 +2877,7 @@
             </form>
 
             <div id="adminNotifBox" class="p-4 rounded-2xl bg-[#FFF8E7] border border-[#C89D54]/40 text-xs text-[#735447]">جاري تحميل إشعارات التسجيل...</div>
+            <div id="adminMerchantsBox" class="p-4 rounded-2xl bg-[#FBF7F2] border border-[#E8DACA] text-xs text-[#735447]">جاري تحميل التاجرات...</div>
             <div class="space-y-3">
               ${db.providerProfiles.map(p => {
                 const u = db.users.find(x => x.id === p.user_id);
@@ -3625,7 +3774,11 @@
       else if (appState.route === "provider") main.innerHTML = renderProviderDetail();
       else if (appState.route === "ad_detail") main.innerHTML = renderAdDetail();
       else if (appState.route === "dashboard") main.innerHTML = renderDashboard();
+      else if (appState.route === "shop") main.innerHTML = renderShop();
       bindEvents();
+      if (appState.route === "shop") void loadShop();
+      if (document.getElementById("myProductsBox")) void loadMyProducts();
+      if (document.getElementById("adminMerchantsBox")) void loadAdminMerchants();
     }
 
     function bindEvents() {
