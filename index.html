@@ -4392,7 +4392,12 @@ async function showDisputeDetail(id, box) {
       d.className = "p-2.5 rounded-xl text-xs " + (mine ? "bg-[#EFE0C3] mr-8" : "bg-[#F3EAE0] ml-8");
       const t = document.createElement("div"); t.style.whiteSpace = "pre-wrap"; t.textContent = m.body;
       const tm = document.createElement("div"); tm.className = "text-[10px] text-[#735447] mt-1"; tm.textContent = chatTime(m.created_at);
-      d.appendChild(t); d.appendChild(tm); box.appendChild(d); box.scrollTop = box.scrollHeight;
+      if (m.image_path) {
+        const im = document.createElement("img"); im.className = "rounded-lg mb-1 max-w-full cursor-pointer"; im.style.maxHeight = "240px"; im.alt = "صورة";
+        supabaseClient.storage.from("chat-images").createSignedUrl(m.image_path, 3600).then(function (x) { if (x.data && x.data.signedUrl) { im.src = x.data.signedUrl; im.onclick = function () { window.open(x.data.signedUrl, "_blank"); }; } });
+        d.appendChild(im);
+      }
+      if (m.body) d.appendChild(t); d.appendChild(tm); box.appendChild(d); box.scrollTop = box.scrollHeight;
     }
     async function openStaffChat(otherId, name) {
       if (!supabaseClient) return;
@@ -4481,7 +4486,7 @@ async function showDisputeDetail(id, box) {
         const av = document.createElement("div"); av.className = "w-10 h-10 shrink-0 rounded-full bg-[#EFE0C3] text-[#4A332A] font-extrabold flex items-center justify-center"; av.textContent = (name.replace(/^[^\p{L}]+/u, "")[0] || "💬");
         const mid = document.createElement("div"); mid.className = "min-w-0 flex-1";
         const t1 = document.createElement("div"); t1.className = "font-bold text-sm text-[#4A332A] truncate"; t1.textContent = name;
-        const t2 = document.createElement("div"); t2.className = "text-xs text-[#735447] truncate"; t2.textContent = lm ? (lm.sender_id === me ? "أنتِ: " : "") + lm.body : "ابدئي المحادثة";
+        const t2 = document.createElement("div"); t2.className = "text-xs text-[#735447] truncate"; t2.textContent = lm ? (lm.sender_id === me ? "أنتِ: " : "") + (lm.body || "📷 صورة") : "ابدئي المحادثة";
         mid.appendChild(t1); mid.appendChild(t2);
         const side = document.createElement("div"); side.className = "shrink-0 text-[10px] text-[#735447] flex flex-col items-end gap-1";
         const tm = document.createElement("span"); tm.textContent = chatTime(c.last_message_at); side.appendChild(tm);
@@ -4492,7 +4497,7 @@ async function showDisputeDetail(id, box) {
       });
     }
     async function openMsgThread(root, me, cid, title) {
-      root.innerHTML = '<div class="glass-card rounded-3xl overflow-hidden flex flex-col"><div class="flex items-center gap-3 p-4 border-b border-[#E8DACA]"><button type="button" id="msgBackBtn" class="px-3 py-1.5 rounded-xl bg-[#EFE0C3] text-[#4A332A] text-xs font-bold">← الرسائل</button><h2 class="font-extrabold text-[#4A332A] text-base truncate">' + esc(title) + '</h2></div><div id="msgWho" class="hidden"></div><div id="chatMsgs" data-cid="' + esc(cid) + '" class="space-y-2 p-4 overflow-y-auto bg-white" style="height:60vh"><p class="text-xs text-[#735447] text-center">جارٍ التحميل...</p></div><form id="msgPageForm" class="flex gap-2 p-3 border-t border-[#E8DACA]"><input name="content" required maxlength="2000" autocomplete="off" placeholder="اكتبي رسالتك..." class="flex-1 px-3 py-2 rounded-xl bg-white border text-sm" /><button type="submit" class="btn-primary px-4 py-2 rounded-xl text-xs font-bold">إرسال</button></form></div>';
+      root.innerHTML = '<div class="glass-card rounded-3xl overflow-hidden flex flex-col"><div class="flex items-center gap-3 p-4 border-b border-[#E8DACA]"><button type="button" id="msgBackBtn" class="px-3 py-1.5 rounded-xl bg-[#EFE0C3] text-[#4A332A] text-xs font-bold">← الرسائل</button><h2 class="font-extrabold text-[#4A332A] text-base truncate">' + esc(title) + '</h2></div><div id="msgWho" class="hidden"></div><div id="chatMsgs" data-cid="' + esc(cid) + '" class="space-y-2 p-4 overflow-y-auto bg-white" style="height:60vh"><p class="text-xs text-[#735447] text-center">جارٍ التحميل...</p></div><form id="msgPageForm" class="flex gap-2 p-3 border-t border-[#E8DACA]"><button type="button" id="msgImgBtn" class="px-3 py-2 rounded-xl bg-[#EFE0C3] text-sm" title="إرفاق صورة">📷</button><input type="file" id="msgImgIn" accept="image/jpeg,image/png,image/webp" class="hidden" /><input name="content" required maxlength="2000" autocomplete="off" placeholder="اكتبي رسالتك..." class="flex-1 px-3 py-2 rounded-xl bg-white border text-sm" /><button type="submit" class="btn-primary px-4 py-2 rounded-xl text-xs font-bold">إرسال</button></form></div>';
       document.getElementById("msgBackBtn").onclick = () => { appState.msgCid = null; appState.msgTitle = null; void renderMessagesPage(); void refreshChatUnread(); };
       supabaseClient.rpc("my_chat_names").then(function (w) {
         const row = (Array.isArray(w.data) ? w.data : []).find(function (x) { return x.id === cid; });
@@ -4504,7 +4509,7 @@ async function showDisputeDetail(id, box) {
         el.innerHTML = av + '<div class="min-w-0"><div class="font-extrabold text-[#4A332A] text-sm truncate">' + esc(row.other_name || "") + '</div><div class="text-xs text-[#735447]">' + (bits.length ? esc(bits.join(" · ")) : "") + '</div>' + (row.other_phone ? "" : '<div class="text-[11px] text-[#735447]">الجوال يظهر بعد تأكيد الحجز</div>') + '</div>';
       });
       const box = document.getElementById("chatMsgs");
-      const r = await supabaseClient.from("messages").select("id, conversation_id, sender_id, body, created_at").eq("conversation_id", cid).order("created_at", { ascending: true }).limit(300);
+      const r = await supabaseClient.from("messages").select("id, conversation_id, sender_id, body, image_path, created_at").eq("conversation_id", cid).order("created_at", { ascending: true }).limit(300);
       if (document.getElementById("chatMsgs") !== box) return;
       if (r.error) { box.textContent = "تعذر تحميل الرسائل: " + r.error.message; return; }
       box.innerHTML = "";
@@ -4517,11 +4522,30 @@ async function showDisputeDetail(id, box) {
       });
       box.scrollTop = box.scrollHeight;
       supabaseClient.rpc("mark_conversation_read", { p_conversation_id: cid }).then(refreshChatUnread);
+      const pick = document.getElementById("msgImgIn"), ibtn = document.getElementById("msgImgBtn");
+      ibtn.onclick = () => pick.click();
+      pick.onchange = async () => {
+        const file = pick.files && pick.files[0]; pick.value = "";
+        if (!file) return;
+        if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { showToast("الصور المسموحة: JPG أو PNG أو WEBP", "error"); return; }
+        if (file.size > 3145728) { showToast("حجم الصورة أكبر من 3 ميغابايت", "error"); return; }
+        ibtn.disabled = true; ibtn.textContent = "...";
+        const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+        const path = cid + "/" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + "." + ext;
+        const up = await supabaseClient.storage.from("chat-images").upload(path, file, { contentType: file.type, upsert: false });
+        if (up.error) { ibtn.disabled = false; ibtn.textContent = "📷"; showToast("تعذر رفع الصورة: " + up.error.message, "error"); return; }
+        const cap = document.querySelector("#msgPageForm input[name=content]"); const cbody = cap ? cap.value.trim() : "";
+        const ins2 = await supabaseClient.from("messages").insert({ conversation_id: cid, body: cbody, image_path: path }).select("id, conversation_id, sender_id, body, image_path, created_at").single();
+        ibtn.disabled = false; ibtn.textContent = "📷";
+        if (ins2.error) { showToast("تعذر إرسال الصورة: " + ins2.error.message, "error"); return; }
+        if (box.dataset.empty) { box.innerHTML = ""; delete box.dataset.empty; }
+        chatAppend(box, ins2.data, me); if (cap) cap.value = "";
+      };
       document.getElementById("msgPageForm").onsubmit = async e => {
         e.preventDefault();
         const inp = e.target.elements.content; const body = inp.value.trim(); if (!body) return;
         inp.disabled = true;
-        const ins = await supabaseClient.from("messages").insert({ conversation_id: cid, body }).select("id, conversation_id, sender_id, body, created_at").single();
+        const ins = await supabaseClient.from("messages").insert({ conversation_id: cid, body }).select("id, conversation_id, sender_id, body, image_path, created_at").single();
         inp.disabled = false;
         if (ins.error) { showToast("تعذر إرسال الرسالة: " + ins.error.message, "error"); return; }
         if (box.dataset.empty) { box.innerHTML = ""; delete box.dataset.empty; }
