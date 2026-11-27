@@ -2897,6 +2897,36 @@ async function showDisputeDetail(id, box) {
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showWelcomeSplash); else showWelcomeSplash();
 
+    let sessionCheckBusy = false;
+    async function ensureLiveSession() {
+      if (!supabaseClient || sessionCheckBusy) return true;
+      const u = currentUser();
+      if (!u || u.is_demo) return true;
+      sessionCheckBusy = true;
+      try {
+        const r = await supabaseClient.auth.getSession();
+        if (r.error || (r.data && r.data.session)) return true;
+        db.currentUserId = null; verifiedAdminUserId = null; saveDB();
+        renderHeader(); renderMain();
+        showToast("انتهت جلستك. سجّلي الدخول من جديد.", "warn");
+        setTimeout(() => { try { showLoginModal(); } catch (e) {} }, 400);
+        return false;
+      } catch (e) { return true; } finally { sessionCheckBusy = false; }
+    }
+    if (supabaseClient) {
+      const rpcOrig = supabaseClient.rpc.bind(supabaseClient);
+      supabaseClient.rpc = async (...args) => {
+        const res = await rpcOrig(...args);
+        if (res && res.error && /permission denied for (function|table)|jwt/i.test(String(res.error.message || ""))) {
+          if (await ensureLiveSession()) return await rpcOrig(...args);
+        }
+        return res;
+      };
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { try { supabaseClient.auth.startAutoRefresh(); } catch (e) {} void ensureLiveSession(); } });
+      window.addEventListener("pageshow", () => { void ensureLiveSession(); });
+      setTimeout(() => { void ensureLiveSession(); }, 2500);
+    }
+
     function renderAccountSummary(user) {
       const roleNames = { client: "عميلة", provider: "مقدمة خدمة", merchant: "تاجرة / صاحبة بازار", moderator: "مشرفة", admin: "الإدارة" };
       const roleName = roleNames[user.role] || user.role || "مستخدم";
