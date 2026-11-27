@@ -4954,9 +4954,10 @@
           const me = currentUser();
           if (!me || (me.role !== "admin" && me.role !== "moderator")) return;
           const isSuperAdmin = me.role === "admin";
+          const useSb = isSuperAdmin || !!me.auth_user_id;
           const curPwd = document.getElementById("myProfCurrentPwd").value;
-          if (isSuperAdmin) {
-            const { error } = await supabaseClient.auth.signInWithPassword({ email: ADMIN_EMAIL, password: curPwd });
+          if (useSb) {
+            const { error } = await supabaseClient.auth.signInWithPassword({ email: isSuperAdmin ? ADMIN_EMAIL : me.email, password: curPwd });
             if (error) {
               console.error("Administrator password confirmation failed:", error.message);
               return showToast("كلمة المرور الحالية غير صحيحة — لم يتم تأكيد هويتكِ", "error");
@@ -4965,6 +4966,9 @@
             return showToast("كلمة المرور الحالية غير صحيحة — لم يتم تأكيد هويتكِ", "error");
           }
           const newEmail = document.getElementById("myProfEmail").value.trim().toLowerCase();
+          if (!isSuperAdmin && me.auth_user_id && newEmail !== String(me.email || "").toLowerCase()) {
+            return showToast("تغيير البريد غير متاح من هذه الصفحة", "error");
+          }
           if (isSuperAdmin && newEmail !== ADMIN_EMAIL) {
             return showToast("لا يمكن تغيير بريد الإدارة من هذه الصفحة", "error");
           }
@@ -4986,7 +4990,7 @@
               return;
             }
           }
-          if (isSuperAdmin) {
+          if (useSb) {
             const { data: { user: authUser }, error: authUserError } = await supabaseClient.auth.getUser();
             if (authUserError || !authUser) {
               console.error("Administrator profile verification failed:", authUserError?.message || "No authenticated user");
