@@ -755,7 +755,8 @@
       const box = document.getElementById("myProductsBox"); const user = currentUser();
       if (!box) return;
       if (!supabaseClient || !user?.auth_user_id) { box.textContent = "سجّلي الدخول بحسابك الحقيقي لإدارة منتجاتك."; return; }
-      const mr = await supabaseClient.rpc("ensure_my_merchant", { p_business_name: user.store_name || user.full_name || "", p_city: user.city || "" });
+      let mr = await supabaseClient.from("merchants").select("id, business_name, verification_status, is_available").eq("user_id", user.auth_user_id).maybeSingle();
+      if (!mr.data) mr = await supabaseClient.rpc("ensure_my_merchant", { p_business_name: user.store_name || user.full_name || "", p_city: user.city || "" });
       const m = Array.isArray(mr.data) ? mr.data[0] : mr.data;
       if (mr.error || !m) { box.textContent = "تعذر تجهيز حساب التاجرة: " + (mr.error ? mr.error.message : ""); return; }
       const pr = await supabaseClient.from("products").select("id, name, description, category, price, currency, image_url, status").eq("merchant_id", m.id).order("created_at", { ascending: false }).limit(200);
