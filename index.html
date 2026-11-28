@@ -4694,25 +4694,54 @@ async function showDisputeDetail(id, box) {
       if (r.error) { body.textContent = "تعذر التحميل: " + r.error.message; return; }
       const pc = await supabaseClient.from("products").select("merchant_id").limit(5000);
       const cnt = {}; (pc.data || []).forEach(p => { cnt[p.merchant_id] = (cnt[p.merchant_id] || 0) + 1; });
-      body.innerHTML = '<p class="mb-2 text-[11px] font-bold">عدد المتاجر: ' + r.data.length + '</p>' + (r.data.map(x =>
+      body.innerHTML = '<button type="button" id="admStoreNew" class="mb-3 px-3 py-2 rounded-xl btn-primary text-xs font-extrabold">➕ إضافة متجر</button><p class="mb-2 text-[11px] font-bold">عدد المتاجر: ' + r.data.length + '</p>' + (r.data.map(x =>
         '<div class="flex flex-wrap items-center justify-between gap-2 py-2 border-t border-[#E8DACA]">' +
-        '<div><span class="font-bold">' + esc(x.business_name || x.display_name || "-") + '</span> <span class="text-[11px]">' + esc(x.city || "") + " · " + esc(MERCHANT_STATUS[x.verification_status] || x.verification_status) + " · منتجات: " + (cnt[x.id] || 0) + "</span></div>" +
+        '<div><span class="font-bold">' + esc(x.business_name || x.display_name || "-") + '</span> <span class="text-[11px]">' + esc(x.city || "") + " · " + esc(MERCHANT_STATUS[x.verification_status] || x.verification_status) + " · منتجات: " + (cnt[x.id] || 0) + (x.user_id ? "" : " · بدون حساب") + "</span></div>" +
         '<button type="button" data-store-edit="' + esc(x.id) + '" class="adm-store-edit px-3 py-1 rounded-lg bg-[#4A332A] text-white text-[11px] font-bold">فتح وتعديل</button></div>').join("") || '<p class="mt-2 text-xs">لا توجد متاجر بعد.</p>');
+      const nsb = document.getElementById("admStoreNew"); if (nsb) nsb.onclick = () => { void openAdmStoreNew(body); };
       body.querySelectorAll(".adm-store-edit").forEach(b => { b.onclick = () => { void openAdmStore(b.dataset.storeEdit); }; });
+    }
+    async function openAdmStoreNew(listBody) {
+      openModal('<div class="text-xs"><h2 class="text-lg font-extrabold text-[#4A332A] mb-2">➕ إضافة متجر</h2><form id="admNewStore" class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+        '<input name="business_name" required maxlength="100" placeholder="اسم المتجر" class="px-2 py-1.5 rounded-lg bg-white border" />' +
+        '<input name="city" maxlength="80" placeholder="الموقع: الدولة أو المدينة" class="px-2 py-1.5 rounded-lg bg-white border" />' +
+        '<input name="contact_phone" maxlength="30" dir="ltr" placeholder="رقم التواصل (يظهر فقط بزر التواصل بعد الدخول)" class="px-2 py-1.5 rounded-lg bg-white border" />' +
+        '<input name="store_email" maxlength="120" dir="ltr" placeholder="بريد المتجر" class="px-2 py-1.5 rounded-lg bg-white border" />' +
+        '<textarea name="description" rows="3" maxlength="600" placeholder="نبذة عن المتجر" class="sm:col-span-2 px-2 py-1.5 rounded-lg bg-white border"></textarea>' +
+        '<label class="font-bold">الشعار<input name="logo" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1" /></label>' +
+        '<label class="font-bold">الغلاف<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1" /></label>' +
+        '<label class="sm:col-span-2 text-[11px] font-bold"><input name="hidden" type="checkbox" /> إخفاء المتجر حتى أوافق عليه</label>' +
+        '<button type="submit" class="sm:col-span-2 btn-primary py-2 rounded-xl font-extrabold">إنشاء المتجر</button></form></div>');
+      const fm = document.getElementById("admNewStore"); if (!fm) return;
+      fm.onsubmit = async e => {
+        e.preventDefault();
+        const fd = new FormData(fm); const btn = fm.querySelector("button[type=submit]"); btn.disabled = true;
+        try {
+          const f = { business_name: String(fd.get("business_name") || "").trim(), city: String(fd.get("city") || "").trim(), contact_phone: String(fd.get("contact_phone") || "").trim(), store_email: String(fd.get("store_email") || "").trim(), description: String(fd.get("description") || "").trim() };
+          if (!f.business_name) throw new Error("اسم المتجر مطلوب");
+          if (fd.get("hidden")) f.verification_status = "pending";
+          const lg = await admUpImg(fd.get("logo"), "logo"); if (lg) f.avatar_url = lg;
+          const cv = await admUpImg(fd.get("cover"), "cover"); if (cv) f.cover_url = cv;
+          const r = await supabaseClient.rpc("admin_create_store", { p_fields: f });
+          if (r.error) throw new Error(r.error.message);
+          showToast("تم إنشاء المتجر"); void renderAdmStores(listBody); void openAdmStore(r.data);
+        } catch (err) { showToast("تعذر الإنشاء: " + err.message, "error"); btn.disabled = false; }
+      };
     }
     async function openAdmStore(mid) {
       openModal('<div id="admStoreBox" class="text-xs">جاري التحميل...</div>');
       const box = document.getElementById("admStoreBox"); if (!box) return;
-      const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, description, city, district, avatar_url, cover_url, store_email, social_links, qr_url, verification_status").eq("id", mid).maybeSingle();
+      const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, description, city, district, avatar_url, cover_url, store_email, social_links, qr_url, verification_status, user_id").eq("id", mid).maybeSingle();
       if (mr.error || !mr.data) { box.textContent = "تعذر التحميل: " + (mr.error ? mr.error.message : "المتجر غير موجود"); return; }
       const pr = await supabaseClient.from("products").select("id, name, description, category, price, currency, image_url, status").eq("merchant_id", mid).order("created_at", { ascending: false }).limit(300);
       const m = mr.data, sl = m.social_links || {}, prods = pr.data || [];
+      const phr = await supabaseClient.rpc("get_merchant_contact", { p_merchant_id: mid }); const phone = phr.data || "";
       const inp = (n, v, ph, ltr) => '<input name="' + n + '" value="' + esc(v || "") + '" placeholder="' + ph + '" maxlength="300" class="px-2 py-1.5 rounded-lg bg-white border w-full"' + (ltr ? ' dir="ltr"' : "") + " />";
       const img = (u, c) => (u ? '<img src="' + esc(u) + '" class="' + c + ' object-cover rounded-lg border" />' : "");
       box.innerHTML = '<div class="max-h-[75vh] overflow-y-auto space-y-3 pr-1">' +
         '<h2 class="text-lg font-extrabold text-[#4A332A]">🏪 ' + esc(m.business_name || m.display_name || "") + "</h2>" +
         '<form id="admStoreForm" class="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 rounded-xl bg-[#FBF7F2] border border-[#E8DACA]">' +
-        inp("business_name", m.business_name, "اسم المتجر") + inp("city", m.city, "الموقع: الدولة أو المدينة") + inp("district", m.district, "الحي") + inp("store_email", m.store_email, "بريد المتجر", true) +
+        inp("business_name", m.business_name, "اسم المتجر") + inp("city", m.city, "الموقع: الدولة أو المدينة") + inp("district", m.district, "الحي") + inp("store_email", m.store_email, "بريد المتجر", true) + inp("contact_phone", phone, "رقم التواصل (يظهر فقط بزر التواصل بعد الدخول)", true) +
         inp("tiktok", sl.tiktok, "TikTok", true) + inp("instagram", sl.instagram, "Instagram", true) + inp("snapchat", sl.snapchat, "Snapchat", true) +
         inp("facebook", sl.facebook, "Facebook", true) + inp("x", sl.x, "X", true) + inp("website", sl.website, "الموقع", true) +
         '<textarea name="description" rows="3" maxlength="600" placeholder="نبذة عن المتجر" class="sm:col-span-2 px-2 py-1.5 rounded-lg bg-white border">' + esc(m.description || "") + "</textarea>" +
@@ -4720,6 +4749,14 @@ async function showDisputeDetail(id, box) {
         '<label class="font-bold">الغلاف ' + img(m.cover_url, "w-24 h-12") + '<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1" /></label>' +
         '<label class="font-bold sm:col-span-2">رمز QR ' + img(m.qr_url, "w-12 h-12") + '<input name="qr" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1" /></label>' +
         '<button type="submit" class="sm:col-span-2 btn-primary py-2 rounded-xl font-extrabold">حفظ ملف المتجر</button></form>' +
+                (m.user_id ? "" : '<div class="p-3 rounded-xl bg-[#FBF7F2] border border-[#E8DACA] space-y-2"><p class="font-bold">متجر بدون حساب تاجرة</p><div class="flex flex-wrap gap-2"><input id="admLinkEmail" dir="ltr" placeholder="بريد حساب التاجرة" class="px-2 py-1.5 rounded-lg bg-white border flex-1" /><button type="button" id="admLinkBtn" class="px-3 py-1.5 rounded-lg bg-[#4A332A] text-white font-bold">ربط بحسابها</button></div><button type="button" id="admDelStore" class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-bold">حذف المتجر بمنتجاته</button></div>') +
+        '<form id="admProdNew" class="grid grid-cols-1 sm:grid-cols-6 gap-2 p-3 rounded-xl bg-[#FBF7F2] border border-[#E8DACA]"><p class="sm:col-span-6 font-extrabold">➕ إضافة منتج</p>' +
+        '<input name="name" required maxlength="150" placeholder="اسم المنتج" class="sm:col-span-3 px-2 py-1.5 rounded-lg bg-white border" />' +
+        '<input name="price" type="number" min="0" step="0.01" required placeholder="السعر" class="sm:col-span-1 px-2 py-1.5 rounded-lg bg-white border" />' +
+        '<select name="category" class="sm:col-span-2 px-2 py-1.5 rounded-lg bg-white border">' + SHOP_CATS.map(c => '<option value="' + c + '">' + catLbl(c) + "</option>").join("") + "</select>" +
+        '<textarea name="description" rows="2" maxlength="1000" placeholder="وصف المنتج" class="sm:col-span-6 px-2 py-1.5 rounded-lg bg-white border"></textarea>' +
+        '<label class="sm:col-span-4 text-[11px] font-bold">صورة المنتج<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1" /></label>' +
+        '<button type="submit" class="sm:col-span-2 btn-primary py-1.5 rounded-lg font-bold">إضافة</button></form>' +
         '<h3 class="font-extrabold text-sm text-[#4A332A]">🛍️ المنتجات (' + prods.length + ")</h3>" +
         (prods.map(p => '<form data-prod-form="' + esc(p.id) + '" class="adm-prod-form grid grid-cols-1 sm:grid-cols-6 gap-2 p-3 rounded-xl bg-white border border-[#E8DACA]">' +
           '<div class="sm:col-span-6 flex items-center gap-2">' + img(p.image_url, "w-14 h-14") + '<span class="text-[11px]">' + (p.status === "published" ? "ظاهر" : "مخفي") + "</span></div>" +
@@ -4736,6 +4773,7 @@ async function showDisputeDetail(id, box) {
         try {
           const f = { business_name: String(fd.get("business_name") || "").trim(), city: String(fd.get("city") || "").trim(), district: String(fd.get("district") || "").trim(), description: String(fd.get("description") || "").trim(), store_email: String(fd.get("store_email") || "").trim() };
           if (!f.business_name) throw new Error("اسم المتجر مطلوب");
+          const ph0 = String(fd.get("contact_phone") || "").trim(); if (ph0) f.contact_phone = ph0;
           const sl2 = {}; ["tiktok", "instagram", "snapchat", "facebook", "x", "website"].forEach(k => { const v = String(fd.get(k) || "").trim(); if (v) sl2[k] = v; }); f.social_links = sl2;
           const lg = await admUpImg(fd.get("logo"), "logo"); if (lg) f.avatar_url = lg;
           const cv = await admUpImg(fd.get("cover"), "cover"); if (cv) f.cover_url = cv;
@@ -4744,6 +4782,34 @@ async function showDisputeDetail(id, box) {
           if (r.error) throw new Error(r.error.message);
           showToast("تم حفظ ملف المتجر"); void openAdmStore(mid);
         } catch (err) { showToast("تعذر الحفظ: " + err.message, "error"); btn.disabled = false; }
+      };
+      const lb = document.getElementById("admLinkBtn");
+      if (lb) lb.onclick = async () => {
+        const em = String((document.getElementById("admLinkEmail") || {}).value || "").trim();
+        if (!em) return showToast("اكتبي بريد الحساب", "error");
+        const r = await supabaseClient.rpc("admin_link_store", { p_merchant_id: mid, p_email: em });
+        if (r.error) return showToast("تعذر الربط: " + r.error.message, "error");
+        showToast("تم ربط المتجر بالحساب"); void openAdmStore(mid);
+      };
+      const dsb = document.getElementById("admDelStore");
+      if (dsb) dsb.onclick = async () => {
+        if (!confirm("حذف المتجر ومنتجاته نهائياً؟")) return;
+        const r = await supabaseClient.rpc("admin_delete_store", { p_merchant_id: mid });
+        if (r.error) return showToast("تعذر الحذف: " + r.error.message, "error");
+        showToast("تم حذف المتجر"); closeModal(); const lbd = document.getElementById("admOvBody"); if (lbd) void renderAdmStores(lbd);
+      };
+      const pn = document.getElementById("admProdNew");
+      if (pn) pn.onsubmit = async e => {
+        e.preventDefault();
+        const fd = new FormData(pn); const btn = pn.querySelector("button[type=submit]"); btn.disabled = true;
+        try {
+          const u = { name: String(fd.get("name") || "").trim(), price: Number(fd.get("price")), category: String(fd.get("category") || ""), description: String(fd.get("description") || "") };
+          if (!u.name || !(u.price >= 0)) throw new Error("الاسم والسعر مطلوبان");
+          const ph = await admUpImg(fd.get("photo"), "p"); if (ph) u.image_url = ph;
+          const r = await supabaseClient.rpc("admin_add_product", { p_merchant_id: mid, p_fields: u });
+          if (r.error) throw new Error(r.error.message);
+          showToast("تمت إضافة المنتج"); void openAdmStore(mid);
+        } catch (err) { showToast("تعذر الإضافة: " + err.message, "error"); btn.disabled = false; }
       };
       box.querySelectorAll(".adm-prod-form").forEach(pf => { pf.onsubmit = async e => {
         e.preventDefault();
