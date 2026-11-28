@@ -2320,13 +2320,13 @@ async function showDisputeDetail(id, box) {
     function renderHome() {
       const approvedProviders = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        return p.approval_status === "approved" && !p.is_demo && (u ? u.is_active : !!p.supabase_id) && !p.subscription_paused;
+        return p.approval_status === "approved" && (p.is_demo || (u ? u.is_active : !!p.supabase_id)) && !p.subscription_paused;
       });
       const topProviders = [...approvedProviders].sort((a, b) => (b.is_promoted - a.is_promoted) || (b.avg_rating - a.avg_rating)).slice(0, 4);
       const nearbyProviders = approvedProviders.filter(p => p.city === db.selectedCity);
-      const latestWorks = [...db.portfolio].filter(w => { const pv = db.providerProfiles.find(p => p.id === w.provider_id); return !!pv && !pv.is_demo && pv.approval_status === "approved"; }).reverse().slice(0, 4);
+      const latestWorks = [...db.portfolio].filter(w => { const pv = db.providerProfiles.find(p => p.id === w.provider_id); return !!pv && pv.approval_status === "approved"; }).reverse().slice(0, 4);
       const activeCats = db.categories.filter(c => c.is_active);
-      const activePromos = db.promotions.filter(p => p.is_active && !(p.provider_id && (db.providerProfiles.find(x => x.id === p.provider_id) || {}).is_demo));
+      const activePromos = db.promotions.filter(p => p.is_active);
 
       return `
         <!-- Hero Banner -->
@@ -2501,7 +2501,7 @@ async function showDisputeDetail(id, box) {
             </div>
             <div class="p-4 space-y-2">
               <div class="flex items-start justify-between gap-2">
-                <h3 class="font-extrabold text-base text-[#4A332A] leading-snug">${p.display_name}</h3>
+                <h3 class="font-extrabold text-base text-[#4A332A] leading-snug">${p.display_name} ${p.is_demo ? '<span class="mr-1 px-2 py-0.5 rounded-full bg-[#EFE0C3] text-[#4A332A] text-[10px] font-bold">نموذج</span>' : ""}</h3>
                 <span class="shrink-0 text-xs font-bold bg-[#EFE0C3] px-2 py-0.5 rounded-lg">★ ${p.avg_rating || "جديد"}</span>
               </div>
               <p class="text-xs text-[#735447]">${getCountryObj(p.country || getCountryByCity(p.city)).flag} ${p.city} · ${p.reviews_count || 0} تقييمًا · ${p.completed_bookings_count || 0} حجزاً</p>
@@ -2588,7 +2588,7 @@ async function showDisputeDetail(id, box) {
       const f = appState.filters;
       const results = db.providerProfiles.filter(p => {
         const u = db.users.find(x => x.id === p.user_id);
-        if (p.approval_status !== "approved" || p.is_demo || !(u ? u.is_active : !!p.supabase_id) || p.subscription_paused) return false;
+        if (p.approval_status !== "approved" || !(p.is_demo || (u ? u.is_active : !!p.supabase_id)) || p.subscription_paused) return false;
         const pCountry = p.country || getCountryByCity(p.city);
         if (f.country && pCountry !== f.country) return false;
         if (f.city && p.city !== f.city) return false;
@@ -2888,7 +2888,7 @@ async function showDisputeDetail(id, box) {
             <img src="${p.avatar_url || ASSETS.hero}" class="md:col-span-4 w-full h-64 object-cover rounded-2xl shadow" />
             <div class="md:col-span-8 space-y-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <h1 class="text-2xl sm:text-3xl font-extrabold text-[#4A332A]">${p.display_name}</h1>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-[#4A332A]">${p.display_name} ${p.is_demo ? '<span class="mr-1 px-2 py-0.5 rounded-full bg-[#EFE0C3] text-[#4A332A] text-[10px] font-bold">نموذج</span>' : ""}</h1>
                 <div class="flex items-center gap-2">
                   <span class="px-3 py-1 rounded-full badge-gold text-xs font-bold">${p.avg_rating || "جديد"} ★★★★★</span>
                   <button data-report-type="provider" data-report-id="${p.id}" class="report-btn px-3 py-1 rounded-full bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100">🚩 إبلاغ</button>
@@ -4431,6 +4431,7 @@ async function showDisputeDetail(id, box) {
       if (user.role !== "client") return showToast("الحجز متاح لحسابات العميلات فقط", "error");
       const svc = db.services.find(s => s.id === serviceId);
       const prov = db.providerProfiles.find(p => p.id === svc.provider_id);
+      if (prov && prov.is_demo) return showToast("هذا حساب نموذجي للعرض فقط ولا يقبل حجوزات", "warn");
       openModal(`
         <h2 class="text-xl font-extrabold text-[#4A332A] mb-2">حجز خدمة: ${svc.title}</h2>
         <p class="text-xs text-[#735447] mb-4">مع ${prov.display_name} • السعر: <strong>${svc.price_sar} ${currencyForProvider(prov)}</strong></p>
