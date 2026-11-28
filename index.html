@@ -752,7 +752,9 @@
     const MERCHANT_STATUS = { pending: "قيد المراجعة", approved: "معتمدة", rejected: "مرفوضة" };
     let shopData = [];
     let shopCat = "";
-    const SHOP_CATS = ["أزياء وعبايات", "الثوب السوداني", "مكياج", "براندات", "عطور وبخور", "عناية بالبشرة والجسم", "شعر", "أكل وأسر منتجة", "هدايا ومناسبات", "أخرى"];
+    const SHOP_CATS = ["أزياء وعبايات", "الثوب السوداني", "مكياج", "براندات", "عطور وبخور", "عناية بالبشرة والجسم", "شعر", "أكل وأسر منتجة", "هدايا ومناسبات", "هاند ميد", "أخرى"];
+    const SHOP_CAT_ICON = { "أزياء وعبايات": "👗", "الثوب السوداني": "👘", "مكياج": "💄", "براندات": "🏷️", "عطور وبخور": "🌸", "عناية بالبشرة والجسم": "🧴", "شعر": "💇", "أكل وأسر منتجة": "🍲", "هدايا ومناسبات": "🎁", "هاند ميد": "🧶", "أخرى": "✨" };
+    const catLbl = c => (SHOP_CAT_ICON[c] ? SHOP_CAT_ICON[c] + " " : "") + c;
     const shopCatOf = p => (SHOP_CATS.includes(p && p.category) ? p.category : "أخرى");
     async function loadMyProducts() {
       const box = document.getElementById("myProductsBox"); const user = currentUser();
@@ -795,7 +797,7 @@
         </form>
         <form id="prodAddForm" class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA] text-xs">
           <input name="name" required maxlength="150" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border font-bold" placeholder="اسم المنتج" />
-          <select name="category" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border">${SHOP_CATS.map(c => `<option value="${c}"${c === "أخرى" ? " selected" : ""}>${c}</option>`).join("")}</select>
+          <select name="category" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border">${SHOP_CATS.map(c => `<option value="${c}"${c === "أخرى" ? " selected" : ""}>${catLbl(c)}</option>`).join("")}</select>
           <input name="price" type="number" min="0" step="0.01" required class="sm:col-span-2 px-3 py-2 rounded-xl bg-white border font-bold" placeholder="السعر" />
           <select name="currency" class="sm:col-span-2 px-3 py-2 rounded-xl bg-white border font-bold">${curs.map(c => `<option value="${c}"${c === defCur ? " selected" : ""}>${c}</option>`).join("")}</select>
           <input name="photo" type="file" accept="image/jpeg,image/png,image/webp" class="sm:col-span-2 text-[11px]" />
@@ -807,7 +809,7 @@
             <div class="p-3 rounded-2xl bg-white border space-y-2 ${p.status === "draft" ? "opacity-60" : ""}">
               ${p.image_url ? `<img src="${esc(p.image_url)}" class="w-full h-36 object-cover rounded-xl" />` : ""}
               <div class="font-extrabold text-sm text-[#4A332A]">${esc(p.name)}</div>
-              <select data-prod-cat="${esc(p.id)}" class="prod-cat-sel text-xs px-2 py-1 rounded-lg bg-white border">${SHOP_CATS.map(c => `<option value="${c}"${c === shopCatOf(p) ? " selected" : ""}>${c}</option>`).join("")}</select>
+              <select data-prod-cat="${esc(p.id)}" class="prod-cat-sel text-xs px-2 py-1 rounded-lg bg-white border">${SHOP_CATS.map(c => `<option value="${c}"${c === shopCatOf(p) ? " selected" : ""}>${catLbl(c)}</option>`).join("")}</select>
               <div class="text-sm font-bold text-[#6D1A36]">${esc(p.price)} ${esc(p.currency)}</div>
               <div class="flex gap-2 text-[11px] font-bold">
                 <button data-prod-toggle="${esc(p.id)}" data-prod-st="${p.status === "published" ? "draft" : "published"}" class="prod-toggle-btn px-3 py-1 rounded-lg bg-[#EFE0C3]">${p.status === "published" ? "إخفاء" : "إظهار"}</button>
@@ -922,7 +924,7 @@
     function drawShop() {
       const grid = document.getElementById("shopGrid"); if (!grid) return;
       const chips = document.getElementById("shopCatChips");
-      if (chips) { chips.innerHTML = ["", ...SHOP_CATS].map(c => '<button type="button" data-shop-cat="' + esc(c) + '" class="px-3 py-1.5 rounded-full text-xs font-bold border ' + (c === shopCat ? "bg-[#4A332A] text-white border-[#4A332A]" : "bg-white text-[#4A332A] border-[#E8DACA]") + '">' + (c || "الكل") + "</button>").join("");
+      if (chips) { chips.innerHTML = ["", ...SHOP_CATS].map(c => '<button type="button" data-shop-cat="' + esc(c) + '" class="px-3 py-1.5 rounded-full text-xs font-bold border ' + (c === shopCat ? "bg-[#4A332A] text-white border-[#4A332A]" : "bg-white text-[#4A332A] border-[#E8DACA]") + '">' + (c ? catLbl(c) : "🛍️ الكل") + "</button>").join("");
         chips.querySelectorAll("[data-shop-cat]").forEach(b => { b.onclick = () => { shopCat = b.dataset.shopCat; drawShop(); }; }); }
       const q = (document.getElementById("shopSearch")?.value || "").trim().toLowerCase();
       const list = shopData.filter(p => (!appState.shopMerchant || p.merchant_id === appState.shopMerchant) && (!shopCat || shopCatOf(p) === shopCat) && (!q || (p.name + " " + (p.category || "") + " " + (p.description || "") + " " + (p.merchantName || "")).toLowerCase().includes(q)));
@@ -932,7 +934,7 @@
           ${p.image_url ? `<img src="${esc(p.image_url)}" loading="lazy" class="w-full h-48 object-cover" />` : '<div class="w-full h-48 bg-gradient-to-br from-[#EFE0C3] to-[#D9B87C] flex items-center justify-center text-4xl">🛍️</div>'}
           <div class="p-4 space-y-1.5 flex-1 flex flex-col">
             <div class="font-extrabold text-[#4A332A]">${esc(p.name)}</div>
-            <div class="text-xs text-[#735447]"><button type="button" data-shop-store="${esc(p.merchant_id)}" class="font-bold underline">${esc(p.merchantName || "التاجرة")}</button>${p.merchantCity ? " · " + esc(p.merchantCity) : ""}${" · " + esc(shopCatOf(p))}</div>
+            <div class="text-xs text-[#735447]"><button type="button" data-shop-store="${esc(p.merchant_id)}" class="font-bold underline">${esc(p.merchantName || "التاجرة")}</button>${p.merchantCity ? " · " + esc(p.merchantCity) : ""}${" · " + esc(catLbl(shopCatOf(p)))}</div>
             <div class="text-xs leading-relaxed text-[#4A332A] flex-1">${esc(p.description || "")}</div>
             <div class="text-base font-extrabold text-[#6D1A36]">${esc(p.price)} ${esc(p.currency)}</div>
             <button data-shop-mid="${esc(p.merchant_id)}" data-shop-name="${esc(p.merchantName || "التاجرة")}" class="shop-contact-btn btn-primary py-2 rounded-xl text-xs font-bold">📞 تواصلي مع التاجرة</button>
