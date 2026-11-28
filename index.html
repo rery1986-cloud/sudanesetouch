@@ -763,12 +763,24 @@
       const curs = Array.from(new Set(Object.values(CURRENCY_BY_COUNTRY)));
       const defCur = CURRENCY_BY_COUNTRY[user.country] || "SAR";
       const approved = m.verification_status === "approved";
+      const prof = ((await supabaseClient.from("merchants").select("business_name, description, city, district, avatar_url, cover_url").eq("id", m.id).maybeSingle()).data) || {};
       box.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="text-lg font-extrabold text-[#4A332A]">🛍️ منتجاتي (${pr.data.length})</h2>
           <span class="px-3 py-1 rounded-full text-xs font-bold ${approved ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}">حساب التاجرة: ${esc(MERCHANT_STATUS[m.verification_status] || m.verification_status)}</span>
         </div>
         ${approved ? "" : '<p class="text-xs text-[#735447]">يمكنك إضافة منتجاتك الآن، وستظهر للجميع في صفحة المتجر بعد اعتماد الإدارة لحسابك.</p>'}
+        <form id="storeProfileForm" class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA] text-xs">
+          <div class="sm:col-span-6 font-extrabold text-sm text-[#4A332A]">🏪 ملف متجري (يظهر في أعلى صفحة متجرك)</div>
+          <input name="business_name" required maxlength="100" value="${esc(prof.business_name || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border font-bold" placeholder="اسم المتجر" />
+          <input name="city" maxlength="80" value="${esc(prof.city || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" placeholder="الموقع: الدولة أو المدينة (مثل مصر، جدة)" />
+          <input name="district" maxlength="80" value="${esc(prof.district || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" placeholder="الحي (اختياري)" />
+          <input name="contact_phone" maxlength="30" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="رقم التواصل (اتركيه فارغاً للإبقاء على رقمك الحالي)" />
+          <textarea name="description" rows="3" maxlength="600" class="sm:col-span-6 px-3 py-2 rounded-xl bg-white border" placeholder="نبذة عن المتجر: ماذا يبيع وما يميزه">${esc(prof.description || "")}</textarea>
+          <label class="sm:col-span-3 text-[11px] font-bold">الشعار ${prof.avatar_url ? "(يوجد شعار، اختاري صورة لتغييره)" : ""}<input name="logo" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1 text-[11px]" /></label>
+          <label class="sm:col-span-3 text-[11px] font-bold">صورة الغلاف ${prof.cover_url ? "(يوجد غلاف، اختاري صورة لتغييره)" : ""}<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1 text-[11px]" /></label>
+          <button type="submit" class="sm:col-span-6 btn-primary py-2 rounded-xl text-xs font-extrabold">حفظ ملف المتجر</button>
+        </form>
         <form id="prodAddForm" class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 bg-[#FBF7F2] p-4 rounded-2xl border border-[#E8DACA] text-xs">
           <input name="name" required maxlength="150" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border font-bold" placeholder="اسم المنتج" />
           <input name="category" maxlength="60" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" placeholder="التصنيف (بخور، عبايات، إكسسوارات...)" />
@@ -810,6 +822,31 @@
         showToast(approved ? "تمت إضافة المنتج" : "تمت إضافة المنتج، وسيظهر بعد اعتماد الإدارة");
         void loadMyProducts();
       };
+      document.getElementById("storeProfileForm").onsubmit = async e => {
+        e.preventDefault();
+        const fd = new FormData(e.target); const btn = e.target.querySelector("button[type=submit]"); btn.disabled = true;
+        const upImg = async (file, tag) => {
+          if (!file || !file.size) return null;
+          if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("الصيغ المسموحة: JPG أو PNG أو WEBP فقط");
+          if (file.size > 25 * 1024 * 1024) throw new Error("حجم الصورة أكبر من 25 ميغابايت");
+          const ext = file.type === "image/png" ? "png" : (file.type === "image/webp" ? "webp" : "jpg");
+          const path = user.auth_user_id + "/" + tag + Date.now() + "." + ext;
+          const up = await supabaseClient.storage.from("media").upload(path, file, { contentType: file.type, upsert: false });
+          if (up.error) throw new Error("تعذر رفع الصورة: " + up.error.message);
+          return supabaseClient.storage.from("media").getPublicUrl(path).data.publicUrl;
+        };
+        try {
+          const upd = { business_name: String(fd.get("business_name") || "").trim(), city: String(fd.get("city") || "").trim(), district: String(fd.get("district") || "").trim(), description: String(fd.get("description") || "").trim() };
+          const ph = String(fd.get("contact_phone") || "").trim(); if (ph) upd.contact_phone = ph;
+          const lg = await upImg(fd.get("logo"), "logo"); if (lg) upd.avatar_url = lg;
+          const cv = await upImg(fd.get("cover"), "cover"); if (cv) upd.cover_url = cv;
+          const r = await supabaseClient.from("merchants").update(upd).eq("id", m.id);
+          if (r.error) throw new Error(r.error.message);
+          showToast("تم حفظ ملف المتجر");
+          void loadMyProducts();
+        } catch (err) { showToast("تعذر الحفظ: " + err.message, "error"); }
+        btn.disabled = false;
+      };
       box.querySelectorAll(".prod-toggle-btn").forEach(b => { b.onclick = async () => {
         const r = await supabaseClient.from("products").update({ status: b.dataset.prodSt }).eq("id", b.dataset.prodToggle);
         if (r.error) return showToast("تعذر التحديث: " + r.error.message, "error"); void loadMyProducts(); }; });
@@ -825,25 +862,48 @@
             <h1 class="text-2xl font-extrabold text-[#4A332A]">🛍️ المتجر</h1>
             <input id="shopSearch" placeholder="ابحثي عن منتج..." class="px-3 py-2 rounded-xl bg-white border text-sm w-full sm:w-64" />
           </div>
-          <div id="shopGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-sm text-[#735447]">جاري التحميل...</p></div>
+          <div id="shopStoreHead"></div><div id="shopGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-sm text-[#735447]">جاري التحميل...</p></div>
         </section>`;
+    }
+    function drawShopHead() {
+      const h = document.getElementById("shopStoreHead"); if (!h) return;
+      const sel = appState.shopMerchant;
+      const bind = () => {
+        h.querySelectorAll("[data-shop-store]").forEach(b => { b.onclick = () => { navigate("shop", { shopMerchant: b.dataset.shopStore }); window.scrollTo(0, 0); }; });
+        h.querySelectorAll("[data-shop-all]").forEach(b => { b.onclick = () => { navigate("shop", { shopMerchant: null }); window.scrollTo(0, 0); }; });
+        h.querySelectorAll(".shop-head-contact").forEach(b => { b.onclick = () => showMerchantContact(b.dataset.shopMid, b.dataset.shopName); });
+      };
+      if (!sel) {
+        const seen = new Map(); shopData.forEach(p => { if (!seen.has(p.merchant_id)) seen.set(p.merchant_id, p.merchantName || "التاجرة"); });
+        h.innerHTML = seen.size ? '<div class="flex flex-wrap items-center gap-2"><span class="text-xs font-bold text-[#735447]">المتاجر:</span>' + Array.from(seen).map(([id, nm]) => '<button type="button" data-shop-store="' + esc(id) + '" class="px-3 py-1.5 rounded-full bg-white border border-[#E8DACA] text-xs font-bold text-[#4A332A]">' + esc(nm) + '</button>').join("") + "</div>" : "";
+        return bind();
+      }
+      const m = shopData.find(x => x.merchant_id === sel);
+      if (!m) { h.innerHTML = '<button type="button" data-shop-all="1" class="text-xs font-bold underline">← كل المتاجر</button>'; return bind(); }
+      h.innerHTML = '<div class="glass-card rounded-2xl overflow-hidden">' + (m.merchantCover ? '<img src="' + esc(m.merchantCover) + '" class="w-full h-32 sm:h-44 object-cover" />' : '<div class="w-full h-20 bg-gradient-to-r from-[#EFE0C3] to-[#D9B87C]"></div>') + '<div class="p-5 flex flex-wrap items-center gap-4">' +
+        (m.merchantAvatar ? '<img src="' + esc(m.merchantAvatar) + '" class="w-16 h-16 rounded-full object-cover" />' : '<div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#EFE0C3] to-[#D9B87C] flex items-center justify-center text-3xl">🛍️</div>') +
+        '<div class="flex-1 min-w-[200px]"><div class="text-xl font-extrabold text-[#4A332A]">' + esc(m.merchantName || "التاجرة") + '</div>' + (m.merchantCity ? '<div class="text-xs text-[#735447]">📍 ' + esc(m.merchantCity) + (m.merchantDistrict ? " - " + esc(m.merchantDistrict) : "") + "</div>" : "") + (m.merchantDesc ? '<div class="text-xs leading-relaxed text-[#4A332A] mt-1">' + esc(m.merchantDesc) + "</div>" : "") + "</div>" +
+        '<div class="flex gap-2"><button type="button" data-shop-mid="' + esc(m.merchant_id) + '" data-shop-name="' + esc(m.merchantName || "التاجرة") + '" class="shop-head-contact btn-primary px-4 py-2 rounded-xl text-xs font-bold">📞 تواصلي مع التاجرة</button><button type="button" data-shop-all="1" class="px-4 py-2 rounded-xl border border-[#4A332A] text-xs font-bold">← كل المتاجر</button></div></div>';
+      bind();
     }
     function drawShop() {
       const grid = document.getElementById("shopGrid"); if (!grid) return;
       const q = (document.getElementById("shopSearch")?.value || "").trim().toLowerCase();
-      const list = shopData.filter(p => !q || (p.name + " " + (p.category || "") + " " + (p.description || "") + " " + (p.merchantName || "")).toLowerCase().includes(q));
+      const list = shopData.filter(p => (!appState.shopMerchant || p.merchant_id === appState.shopMerchant) && (!q || (p.name + " " + (p.category || "") + " " + (p.description || "") + " " + (p.merchantName || "")).toLowerCase().includes(q)));
+      drawShopHead();
       grid.innerHTML = list.map(p => `
         <div class="glass-card rounded-2xl overflow-hidden flex flex-col">
           ${p.image_url ? `<img src="${esc(p.image_url)}" loading="lazy" class="w-full h-48 object-cover" />` : '<div class="w-full h-48 bg-gradient-to-br from-[#EFE0C3] to-[#D9B87C] flex items-center justify-center text-4xl">🛍️</div>'}
           <div class="p-4 space-y-1.5 flex-1 flex flex-col">
             <div class="font-extrabold text-[#4A332A]">${esc(p.name)}</div>
-            <div class="text-xs text-[#735447]">${esc(p.merchantName || "")}${p.merchantCity ? " · " + esc(p.merchantCity) : ""}${p.category ? " · " + esc(p.category) : ""}</div>
+            <div class="text-xs text-[#735447]"><button type="button" data-shop-store="${esc(p.merchant_id)}" class="font-bold underline">${esc(p.merchantName || "التاجرة")}</button>${p.merchantCity ? " · " + esc(p.merchantCity) : ""}${p.category ? " · " + esc(p.category) : ""}</div>
             <div class="text-xs leading-relaxed text-[#4A332A] flex-1">${esc(p.description || "")}</div>
             <div class="text-base font-extrabold text-[#6D1A36]">${esc(p.price)} ${esc(p.currency)}</div>
             <button data-shop-mid="${esc(p.merchant_id)}" data-shop-name="${esc(p.merchantName || "التاجرة")}" class="shop-contact-btn btn-primary py-2 rounded-xl text-xs font-bold">📞 تواصلي مع التاجرة</button>
           </div>
         </div>`).join("") || '<p class="text-sm text-[#735447]">لا توجد منتجات معروضة بعد.</p>';
       grid.querySelectorAll(".shop-contact-btn").forEach(b => { b.onclick = () => showMerchantContact(b.dataset.shopMid, b.dataset.shopName); });
+      grid.querySelectorAll("[data-shop-store]").forEach(b => { b.onclick = () => { navigate("shop", { shopMerchant: b.dataset.shopStore }); window.scrollTo(0, 0); }; });
     }
     async function loadShop() {
       const search = document.getElementById("shopSearch"); if (search) search.oninput = drawShop;
@@ -854,10 +914,10 @@
       const ids = Array.from(new Set(pr.data.map(p => p.merchant_id)));
       const names = {};
       if (ids.length) {
-        const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, city").in("id", ids);
+        const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, city, district, description, avatar_url, cover_url").in("id", ids);
         (mr.data || []).forEach(x => { names[x.id] = x; });
       }
-      shopData = pr.data.map(p => ({ ...p, merchantName: names[p.merchant_id]?.business_name || names[p.merchant_id]?.display_name || "", merchantCity: names[p.merchant_id]?.city || "" }));
+      shopData = pr.data.map(p => ({ ...p, merchantName: names[p.merchant_id]?.business_name || names[p.merchant_id]?.display_name || "", merchantCity: names[p.merchant_id]?.city || "", merchantDesc: names[p.merchant_id]?.description || "", merchantAvatar: names[p.merchant_id]?.avatar_url || "", merchantCover: names[p.merchant_id]?.cover_url || "", merchantDistrict: names[p.merchant_id]?.district || "" }));
       drawShop();
     }
     async function showMerchantContact(merchantId, name) {
@@ -5026,7 +5086,7 @@ async function showDisputeDetail(id, box) {
 
     function bindEvents() {
       document.querySelectorAll(".nav-btn").forEach(b => {
-        b.onclick = () => navigate(b.dataset.nav);
+        b.onclick = () => navigate(b.dataset.nav, b.dataset.nav === "shop" ? { shopMerchant: null } : {});
       });
       document.getElementById("navLogo").onclick = () => navigate("home");
       document.getElementById("resetDemoBtn").onclick = () => {
