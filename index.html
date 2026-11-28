@@ -763,7 +763,7 @@
       const curs = Array.from(new Set(Object.values(CURRENCY_BY_COUNTRY)));
       const defCur = CURRENCY_BY_COUNTRY[user.country] || "SAR";
       const approved = m.verification_status === "approved";
-      const prof = ((await supabaseClient.from("merchants").select("business_name, description, city, district, avatar_url, cover_url").eq("id", m.id).maybeSingle()).data) || {};
+      const prof = ((await supabaseClient.from("merchants").select("business_name, description, city, district, avatar_url, cover_url, store_email, social_links").eq("id", m.id).maybeSingle()).data) || {};
       box.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="text-lg font-extrabold text-[#4A332A]">🛍️ منتجاتي (${pr.data.length})</h2>
@@ -776,6 +776,13 @@
           <input name="city" maxlength="80" value="${esc(prof.city || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" placeholder="الموقع: الدولة أو المدينة (مثل مصر، جدة)" />
           <input name="district" maxlength="80" value="${esc(prof.district || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" placeholder="الحي (اختياري)" />
           <input name="contact_phone" maxlength="30" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="رقم التواصل (اتركيه فارغاً للإبقاء على رقمك الحالي)" />
+          <input name="store_email" type="email" maxlength="120" value="${esc(prof.store_email || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="بريد المتجر (يظهر للزوار، اختياري)" />
+          <input name="tiktok" maxlength="200" value="${esc((prof.social_links || {}).tiktok || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="TikTok: @اسم_الحساب أو رابط" />
+          <input name="instagram" maxlength="200" value="${esc((prof.social_links || {}).instagram || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="Instagram: @اسم_الحساب أو رابط" />
+          <input name="snapchat" maxlength="200" value="${esc((prof.social_links || {}).snapchat || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="Snapchat: اسم الحساب أو رابط" />
+          <input name="facebook" maxlength="200" value="${esc((prof.social_links || {}).facebook || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="Facebook: رابط https://" />
+          <input name="x" maxlength="200" value="${esc((prof.social_links || {}).x || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="X: @اسم_الحساب أو رابط" />
+          <input name="website" maxlength="200" value="${esc((prof.social_links || {}).website || "")}" class="sm:col-span-3 px-3 py-2 rounded-xl bg-white border" dir="ltr" placeholder="الموقع: رابط https://" />
           <textarea name="description" rows="3" maxlength="600" class="sm:col-span-6 px-3 py-2 rounded-xl bg-white border" placeholder="نبذة عن المتجر: ماذا يبيع وما يميزه">${esc(prof.description || "")}</textarea>
           <label class="sm:col-span-3 text-[11px] font-bold">الشعار ${prof.avatar_url ? "(يوجد شعار، اختاري صورة لتغييره)" : ""}<input name="logo" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1 text-[11px]" /></label>
           <label class="sm:col-span-3 text-[11px] font-bold">صورة الغلاف ${prof.cover_url ? "(يوجد غلاف، اختاري صورة لتغييره)" : ""}<input name="cover" type="file" accept="image/jpeg,image/png,image/webp" class="block mt-1 text-[11px]" /></label>
@@ -838,6 +845,8 @@
         try {
           const upd = { business_name: String(fd.get("business_name") || "").trim(), city: String(fd.get("city") || "").trim(), district: String(fd.get("district") || "").trim(), description: String(fd.get("description") || "").trim() };
           const ph = String(fd.get("contact_phone") || "").trim(); if (ph) upd.contact_phone = ph;
+          upd.store_email = String(fd.get("store_email") || "").trim();
+          const sl = {}; ["tiktok", "instagram", "snapchat", "facebook", "x", "website"].forEach(k => { const v = String(fd.get(k) || "").trim(); if (v) sl[k] = v; }); upd.social_links = sl;
           const lg = await upImg(fd.get("logo"), "logo"); if (lg) upd.avatar_url = lg;
           const cv = await upImg(fd.get("cover"), "cover"); if (cv) upd.cover_url = cv;
           const r = await supabaseClient.from("merchants").update(upd).eq("id", m.id);
@@ -865,6 +874,20 @@
           <div id="shopStoreHead"></div><div id="shopGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"><p class="text-sm text-[#735447]">جاري التحميل...</p></div>
         </section>`;
     }
+    function storeLinksHtml(m) {
+      const L = m.merchantLinks || {}; const parts = [];
+      const NAMES = { tiktok: "TikTok", instagram: "Instagram", snapchat: "Snapchat", facebook: "Facebook", x: "X", website: "الموقع" };
+      const BASE = { tiktok: "https://www.tiktok.com/@", instagram: "https://www.instagram.com/", snapchat: "https://www.snapchat.com/add/", x: "https://x.com/" };
+      Object.keys(NAMES).forEach(k => {
+        let v = String(L[k] || "").trim(); if (!v) return;
+        let url = "";
+        if (/^https:\/\//i.test(v)) url = v;
+        else if (BASE[k] && /^@?[A-Za-z0-9._]{1,40}$/.test(v)) url = BASE[k] + v.replace(/^@/, "");
+        if (url) parts.push('<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded-full bg-white border border-[#E8DACA] text-[11px] font-bold text-[#4A332A]">' + NAMES[k] + "</a>");
+      });
+      if (m.merchantEmail && /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(m.merchantEmail)) parts.push('<a href="mailto:' + esc(m.merchantEmail) + '" class="px-3 py-1 rounded-full bg-white border border-[#E8DACA] text-[11px] font-bold text-[#4A332A]" dir="ltr">✉️ ' + esc(m.merchantEmail) + "</a>");
+      return parts.length ? '<div class="flex flex-wrap gap-2 mt-2">' + parts.join("") + "</div>" : "";
+    }
     function drawShopHead() {
       const h = document.getElementById("shopStoreHead"); if (!h) return;
       const sel = appState.shopMerchant;
@@ -882,7 +905,7 @@
       if (!m) { h.innerHTML = '<button type="button" data-shop-all="1" class="text-xs font-bold underline">← كل المتاجر</button>'; return bind(); }
       h.innerHTML = '<div class="glass-card rounded-2xl overflow-hidden">' + (m.merchantCover ? '<img src="' + esc(m.merchantCover) + '" class="w-full h-32 sm:h-44 object-cover" />' : '<div class="w-full h-20 bg-gradient-to-r from-[#EFE0C3] to-[#D9B87C]"></div>') + '<div class="p-5 flex flex-wrap items-center gap-4">' +
         (m.merchantAvatar ? '<img src="' + esc(m.merchantAvatar) + '" class="w-16 h-16 rounded-full object-cover" />' : '<div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#EFE0C3] to-[#D9B87C] flex items-center justify-center text-3xl">🛍️</div>') +
-        '<div class="flex-1 min-w-[200px]"><div class="text-xl font-extrabold text-[#4A332A]">' + esc(m.merchantName || "التاجرة") + '</div>' + (m.merchantCity ? '<div class="text-xs text-[#735447]">📍 ' + esc(m.merchantCity) + (m.merchantDistrict ? " - " + esc(m.merchantDistrict) : "") + "</div>" : "") + (m.merchantDesc ? '<div class="text-xs leading-relaxed text-[#4A332A] mt-1">' + esc(m.merchantDesc) + "</div>" : "") + "</div>" +
+        '<div class="flex-1 min-w-[200px]"><div class="text-xl font-extrabold text-[#4A332A]">' + esc(m.merchantName || "التاجرة") + '</div>' + (m.merchantCity ? '<div class="text-xs text-[#735447]">📍 ' + esc(m.merchantCity) + (m.merchantDistrict ? " - " + esc(m.merchantDistrict) : "") + "</div>" : "") + (m.merchantDesc ? '<div class="text-xs leading-relaxed text-[#4A332A] mt-1">' + esc(m.merchantDesc) + "</div>" : "") + storeLinksHtml(m) + "</div>" +
         '<div class="flex gap-2"><button type="button" data-shop-mid="' + esc(m.merchant_id) + '" data-shop-name="' + esc(m.merchantName || "التاجرة") + '" class="shop-head-contact btn-primary px-4 py-2 rounded-xl text-xs font-bold">📞 تواصلي مع التاجرة</button><button type="button" data-shop-all="1" class="px-4 py-2 rounded-xl border border-[#4A332A] text-xs font-bold">← كل المتاجر</button></div></div>';
       bind();
     }
@@ -914,10 +937,10 @@
       const ids = Array.from(new Set(pr.data.map(p => p.merchant_id)));
       const names = {};
       if (ids.length) {
-        const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, city, district, description, avatar_url, cover_url").in("id", ids);
+        const mr = await supabaseClient.from("merchants").select("id, business_name, display_name, city, district, description, avatar_url, cover_url, store_email, social_links").in("id", ids);
         (mr.data || []).forEach(x => { names[x.id] = x; });
       }
-      shopData = pr.data.map(p => ({ ...p, merchantName: names[p.merchant_id]?.business_name || names[p.merchant_id]?.display_name || "", merchantCity: names[p.merchant_id]?.city || "", merchantDesc: names[p.merchant_id]?.description || "", merchantAvatar: names[p.merchant_id]?.avatar_url || "", merchantCover: names[p.merchant_id]?.cover_url || "", merchantDistrict: names[p.merchant_id]?.district || "" }));
+      shopData = pr.data.map(p => ({ ...p, merchantName: names[p.merchant_id]?.business_name || names[p.merchant_id]?.display_name || "", merchantCity: names[p.merchant_id]?.city || "", merchantDesc: names[p.merchant_id]?.description || "", merchantAvatar: names[p.merchant_id]?.avatar_url || "", merchantCover: names[p.merchant_id]?.cover_url || "", merchantDistrict: names[p.merchant_id]?.district || "", merchantEmail: names[p.merchant_id]?.store_email || "", merchantLinks: names[p.merchant_id]?.social_links || {} }));
       drawShop();
     }
     async function showMerchantContact(merchantId, name) {
